@@ -1,0 +1,17 @@
+{
+  "name": "spellblade",
+  "version": "0.1.0",
+  "description": "Claude Code 를 쓴 만큼 수련생에서 마검성으로 자라는 판타지 마검사",
+  "author": { "name": "박정욱" },
+  "license": "MIT",
+  "keywords": ["mod", "game", "character"],
+  "userConfig": {
+    "band": {
+      "type": "string",
+      "title": "밴드 표시",
+      "description": "프롬프트 위 밴드: panel(그림판) · line(한 줄) · off",
+      "default": "panel",
+      "options": ["panel", "line", "off"]
+    }
+  }
+}

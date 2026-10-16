@@ -1,0 +1,12 @@
+{
+  "name": "spellblade",
+  "description": "Claude Code 안에서 자라는 마검사",
+  "owner": { "name": "박정욱" },
+  "plugins": [
+    {
+      "name": "spellblade",
+      "source": "./plugins/spellblade",
+      "description": "Claude Code 를 쓴 만큼 자라는 판타지 마검사"
+    }
+  ]
+}
