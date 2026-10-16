@@ -261,7 +261,9 @@ test('턴이 끝나면 승리 문구', async ($, on) => {
 
 async function cardText($: Engine): Promise<string> {
   const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'Pane', requestId: 'spellblade', props: PANE() })
-  return JSON.stringify(await m.drawn())
+  const text = JSON.stringify(await m.drawn())
+  await m.unmount() // 같은 테스트에서 다시 그릴 수 있게
+  return text
 }
 
 test('도구 한 번에 베기 한 번', async ($, on) => {
@@ -350,4 +352,77 @@ test('서브에이전트 턴 끝은 승리가 아니다', async ($, on) => {
   const text = await bandText($)
   expect(text).not.toMatch(/승리/)
   expect(text).toMatch(/마법을 두르는 중/)
+})
+
+// ---- M3: /blade name · demo · reset ----
+
+async function blade($: Engine, args: string): Promise<string> {
+  const out = await $.command.run({ command: 'blade', args })
+  return String((out as { text?: string }).text ?? '')
+}
+
+function answerAsk(on: On, label: string | null) {
+  on('tool.call', { tool: 'AskUserQuestion' }, async (_$, e: any) =>
+    label === null ? { deny: '닫힘' } : { result: { questions: e.questions, answers: { [e.questions[0].question]: label } } })
+}
+
+test('이름 바꾸기', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON })
+  await start($)
+  expect(await blade($, 'name 아린')).toBe('이제부터 「아린」이에요')
+  expect(seen.store.get('profile')).toMatchObject({ name: '아린' })
+  expect(await bandText($)).toMatch(/아린 ·/)
+})
+
+test('이름 길이 검사', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON })
+  await start($)
+  expect(await blade($, 'name ' + 'x'.repeat(13))).toMatch(/1~12자/)
+  expect(await blade($, 'name')).toMatch(/1~12자/)
+  expect(seen.store.get('profile')).toMatchObject({ name: '렌' })
+})
+
+test('데모는 저장소를 안 바꾼다', async ($, on) => {
+  const { clock, seen } = beneath(on, { now: NOON, store: { [`d:${TODAY}:y`]: entry(500_000) } })
+  await start($)
+  const before = JSON.stringify([...seen.store])
+  await blade($, 'demo')
+  expect(await cardText($)).toMatch(/\(데모\)/)
+  await clock.advance(6_000)
+  expect(await cardText($)).toMatch(/검사/)
+  await clock.advance(25_000)
+  expect(await cardText($)).not.toMatch(/\(데모\)/)
+  expect(JSON.stringify([...seen.store])).toBe(before)
+})
+
+test('reset: 그만두면 그대로', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${TODAY}:y`]: entry(500_000) } })
+  answerAsk(on, '그만두기')
+  await start($)
+  expect(await blade($, 'reset')).toMatch(/그만뒀어요/)
+  expect(seen.store.has(`d:${TODAY}:y`)).toBe(true)
+})
+
+test('reset: 처음부터를 고르면 지운다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(959_000), [`d:${TODAY}:y`]: entry(500_000), log: [{ at: 1, level: 4, stage: 'trainee' }] } })
+  answerAsk(on, '처음부터')
+  await start($)
+  expect(await blade($, 'reset')).toMatch(/처음부터/)
+  expect([...seen.store.keys()].filter(k => k.startsWith('d:'))).toEqual([])
+  expect(seen.store.has('log')).toBe(false)
+  expect(await bandText($)).toMatch(/Lv\.1(?!\d)/)
+})
+
+test('reset: 묻기가 실패하면 안 지운다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${TODAY}:y`]: entry(500_000) } })
+  answerAsk(on, null)
+  await start($)
+  expect(await blade($, 'reset')).toMatch(/그만뒀어요/)
+  expect(seen.store.has(`d:${TODAY}:y`)).toBe(true)
+})
+
+test('모르는 인자는 쓸 수 있는 명령을 알려 준다', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  expect(await blade($, 'dance')).toMatch(/\/blade name <이름>/)
 })

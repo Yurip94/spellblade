@@ -1,4 +1,4 @@
-import { MS } from './balance.ts'
+import { MS, STAGES, type StageId } from './balance.ts'
 
 export type Pose = 'idle' | 'blink' | 'cast1' | 'cast2' | 'slash' | 'victory' | 'hit' | 'levelup' | 'sleep'
 
@@ -33,4 +33,22 @@ export function poseAt(a: Activity, now: number): { pose: Pose; line: string } {
   if (now - a.lastActiveAt >= MS.sleepAfter) return { pose: 'sleep', line: 'Zzz' }
   if (now % MS.blinkEvery < MS.blinkFor) return { pose: 'blink', line: '쉬는 중' }
   return { pose: 'idle', line: '쉬는 중' }
+}
+
+// ---- /blade demo: 5단계 × 6자세를 1초씩, 저장소는 건드리지 않는다 ----
+
+const DEMO_STEP = 1000
+const DEMO_POSES: readonly { pose: Pose; line: string }[] = [
+  { pose: 'idle', line: '쉬는 중' },
+  { pose: 'cast1', line: '마법을 두르는 중…' },
+  { pose: 'slash', line: '베기! (데모)' },
+  { pose: 'victory', line: '✓ 승리 +0 XP' },
+  { pose: 'hit', line: '윽, 반격당했다' },
+  { pose: 'levelup', line: '레벨업!' },
+]
+
+export function demoFrame(elapsedMs: number): { stage: StageId; pose: Pose; line: string } | null {
+  const i = Math.floor(elapsedMs / DEMO_STEP)
+  if (elapsedMs < 0 || i >= STAGES.length * DEMO_POSES.length) return null
+  return { stage: STAGES[Math.floor(i / DEMO_POSES.length)].id, ...DEMO_POSES[i % DEMO_POSES.length] }
 }

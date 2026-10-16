@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { poseAt, withFlash, type Activity } from '../hooks/lib/status.ts'
+import { demoFrame, poseAt, withFlash, type Activity } from '../hooks/lib/status.ts'
 
 const A = (o: Partial<Activity> = {}): Activity => ({ working: false, lastActiveAt: 0, flash: null, ...o })
 
@@ -65,4 +65,14 @@ test('전리품 문구는 승리 자세로', async () => {
 test('전리품은 승리를 덮고 반격에는 밀린다', async () => {
   expect(poseAt(withFlash(withFlash(A(), 'victory', 0, '1'), 'loot', 10, 'L'), 20).line).toBe('L')
   expect(poseAt(withFlash(withFlash(A(), 'hit', 0), 'loot', 10, 'L'), 20).pose).toBe('hit')
+})
+
+test('데모: 5단계 × 6자세를 1초씩, 30초면 끝', async () => {
+  expect(demoFrame(0)).toMatchObject({ stage: 'trainee', pose: 'idle' })
+  expect(demoFrame(1000)).toMatchObject({ stage: 'trainee', pose: 'cast1' })
+  expect(demoFrame(2500)).toMatchObject({ stage: 'trainee', pose: 'slash' })
+  expect(demoFrame(6000)).toMatchObject({ stage: 'swordsman', pose: 'idle' })
+  expect(demoFrame(29_999)).toMatchObject({ stage: 'saint', pose: 'levelup' })
+  expect(demoFrame(30_000)).toBe(null)
+  expect(demoFrame(-1)).toBe(null)
 })

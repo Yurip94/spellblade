@@ -1,12 +1,12 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { DEFAULT_NAME, LOG_MAX, MS } from './lib/balance.ts'
+import { DEFAULT_NAME, LOG_MAX, MS, STAGES } from './lib/balance.ts'
 import { bonusesFor, subjectJosa } from './lib/bonus.ts'
 import { addSum, allowedBonus, dayKey, entryKey, isEntry, isLogEntry, isProfile, parseEntryKey, sumEntries, sumXp, ZERO, type Entry, type Sum } from './lib/ledger.ts'
-import { levelOf, progressOf, stageOf, weightOf } from './lib/progress.ts'
+import { levelOf, progressOf, stageOf, weightOf, xpForLevel } from './lib/progress.ts'
 import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
 import { gridToRaster } from './lib/to-raster.ts'
 import { gridToSvg } from './lib/to-svg.ts'
-import { poseAt, withFlash, type Activity } from './lib/status.ts'
+import { demoFrame, poseAt, withFlash, type Activity } from './lib/status.ts'
 import { bandLineText, bandModeOf, bandPanel, card, heroArt, spinnerSuffix, type CardView, type Els, type LogEntry } from './lib/views.ts'
 
 // ---- 모듈 상태 (session.start 의 load 가 매번 새로 채운다) ----
@@ -26,6 +26,7 @@ let turnW = 0
 let activity: Activity = { working: false, lastActiveAt: 0, flash: null }
 let clockNow = 0 // 마지막으로 읽은 시각 (그리기용)
 let lastDrawnKey = ''
+let demoStartedAt: number | null = null
 let syncing = false
 let sinceSync = 0
 
@@ -64,8 +65,20 @@ function totalSum(): Sum {
   return addSum(past, todaySum())
 }
 
+function demoNow(): ReturnType<typeof demoFrame> {
+  if (demoStartedAt === null) return null
+  const f = demoFrame(clockNow - demoStartedAt)
+  if (!f) demoStartedAt = null
+  return f
+}
+
 function snapshot(): CardView {
   const t = todaySum()
+  const demo = demoNow()
+  if (demo) {
+    const stage = STAGES.find(s => s.id === demo.stage) ?? STAGES[0]
+    return { name, progress: progressOf(xpForLevel(stage.minLevel)), todayXp: 0, weekXp: 0, todaySwings: 0, line: demo.line, log, isDemo: true }
+  }
   return {
     name,
     progress: progressOf(sumXp(totalSum())),
@@ -81,8 +94,9 @@ function snapshot(): CardView {
 // 지금 그릴 단계 · 자세. 바뀔 때만 다시 그리려고 열쇠도 같이
 function drawState(): { stage: CardView['progress']['stage']; pose: ReturnType<typeof poseAt>['pose']; key: string } {
   const v = snapshot()
-  const { pose, line } = poseAt(activity, clockNow)
-  return { stage: v.progress.stage, pose, key: `${v.progress.stage.id}|${pose}|${line}|${v.progress.xp}` }
+  const demo = demoNow()
+  const { pose, line } = demo ?? poseAt(activity, clockNow)
+  return { stage: v.progress.stage, pose, key: `${demo ? 'demo' : ''}|${v.progress.stage.id}|${pose}|${line}|${v.progress.xp}` }
 }
 
 async function readAll($: EngineInterface): Promise<[string, unknown][]> {
@@ -206,6 +220,32 @@ function applyBonus(command: string, day: string): string {
 }
 
 // ---- 명령 ----
+
+async function rename($: EngineInterface, next: string): Promise<string> {
+  const length = [...next].length
+  if (length < 1 || length > 12) return '이름은 1~12자로 써 주세요'
+  const stored = await $.store.get('profile')
+  const base = isProfile(stored) ? stored : { name, createdAt: clockNow, lastLevel: levelOf(sumXp(totalSum())) }
+  await $.store.set('profile', { ...base, name: next })
+  name = next
+  $.ui.invalidate('ui.render')
+  return `이제부터 「${next}」이에요`
+}
+
+async function reset($: EngineInterface): Promise<string> {
+  let answer = ''
+  try {
+    answer = await $.ui.ask('경험치 · 일지를 모두 지우고 처음부터 할까요?', ['처음부터', '그만두기'])
+  } catch {
+    return '그만뒀어요'
+  }
+  if (answer !== '처음부터') return '그만뒀어요'
+  for (const key of await $.store.keys()) {
+    if (key.startsWith('d:') || key === 'profile' || key === 'log') await $.store.delete(key)
+  }
+  await load($)
+  return `처음부터 다시 시작해요. 수련생 ${name}, 잘 부탁해요!`
+}
 
 async function registerCommand($: EngineInterface): Promise<void> {
   try {
@@ -347,6 +387,14 @@ export const register: Register = (on, options) => {
       await $.ui.open({ id: PANE, title: '마검사', focus: true, closeOnEscape: true })
       return {}
     }
+    if (word === 'name') return { text: await rename($, e.args.trim().slice(4).trim()) }
+    if (word === 'demo') {
+      clockNow = await $.clock.now()
+      demoStartedAt = clockNow
+      $.ui.invalidate('ui.render')
+      return { text: '30초 동안 다섯 단계를 차례로 보여 줄게요' }
+    }
+    if (word === 'reset') return { text: await reset($) }
     if (word === 'probe') {
       await $.ui.open({ id: PROBE, title: '마검사 시험', focus: true, closeOnEscape: true })
       return { text: await probeText($) }
