@@ -12,7 +12,7 @@ import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
 import { gridToRaster } from './lib/to-raster.ts'
 import { gridToSvg } from './lib/to-svg.ts'
 import { demoFrame, poseAt, withFlash, type Activity, type Mood } from './lib/status.ts'
-import { bandLineText, bandModeOf, bandPanel, baseView, card, heroArt, spinnerSuffix, stageRoad, type CardView, type Els, type Tab } from './lib/views.ts'
+import { bandLineText, bandModeOf, bandPanel, baseView, card, heroArt, motionOf, spinnerSuffix, stageRoad, type CardView, type Els, type Tab } from './lib/views.ts'
 
 // ---- 모듈 상태 (session.start 의 load 가 매번 새로 채운다) ----
 
@@ -45,6 +45,8 @@ let chosenTitle: string | null = null // /blade title 로 고른 칭호
 let lastTurn: CardView['turn'] = null
 let banner: { text: string; until: number } | null = null
 let tab: Tab = 1 // 카드 창 탭
+let surface = 'terminal' // 이 세션이 그려지는 곳
+let smooth = true // 데스크톱은 SVG 안에서 움직임(userConfig.motion)
 
 let turnW = 0
 let activity: Activity = { working: false, lastActiveAt: 0, flash: null }
@@ -185,7 +187,11 @@ function drawState(): { stage: CardView['progress']['stage']; pose: ReturnType<t
   const { pose, line } = demo ?? poseAt(activity, clockNow, mood())
   // 레벨업 빛기둥은 두 프레임을 번갈아
   const frame: 0 | 1 = pose === 'levelup' && Math.floor(clockNow / MS.castFrame) % 2 === 1 ? 1 : 0
-  return { stage: v.progress.stage, pose, frame, key: `${demo ? 'demo' : ''}|${v.progress.stage.id}|${pose}|${frame}|${line}|${v.progress.xp}|${v.banner ?? ''}` }
+  // 데스크톱 smooth 는 SVG 가 스스로 움직이므로 짝 자세가 바뀌어도 다시 그리지 않는다
+  const svgMoves = smooth && surface !== 'terminal'
+  const keyPose = svgMoves ? ({ cast2: 'cast1', blink: 'idle' } as Record<string, string>)[pose] ?? pose : pose
+  const keyFrame = svgMoves ? 0 : frame
+  return { stage: v.progress.stage, pose, frame, key: `${demo ? 'demo' : ''}|${v.progress.stage.id}|${keyPose}|${keyFrame}|${line}|${v.progress.xp}|${v.banner ?? ''}` }
 }
 
 async function readAll($: EngineInterface): Promise<[string, unknown][]> {
@@ -507,9 +513,11 @@ function startTimer($: EngineInterface): void {
 
 export const register: Register = (on, options) => {
   const band = bandModeOf(options.band)
+  smooth = motionOf(options.motion) === 'smooth'
 
   on('session.start', async ($, e, next) => {
     const out = await next(e)
+    surface = e.surface ?? 'terminal'
     turnW = 0
     activity = { working: false, lastActiveAt: 0, flash: null }
     lastDrawnKey = ''
@@ -649,7 +657,7 @@ export const register: Register = (on, options) => {
     const { stage, pose, frame } = drawState()
     // 그림판은 8줄 그림 + 다른 Mod 줄 여유 2줄 → 10줄 이상에서만
     const roomy = band === 'panel' && e.props.bodyColumns >= 64 && e.props.maxRows >= 10
-    const art = roomy ? heroArt(el, e.surface, stage.id, pose, 'band', frame) : null
+    const art = roomy ? heroArt(el, e.surface, stage.id, pose, 'band', frame, smooth) : null
     const mine = art ? bandPanel(el, art, v) : el.Text({ wrap: 'truncate-end', children: [bandLineText(v)] })
     return el.Box({ flexDirection: 'column', children: [mine, below] }) as any
   })
@@ -663,7 +671,7 @@ export const register: Register = (on, options) => {
         tab = t
         $.ui.invalidate('ui.render')
       }
-      return card(el, heroArt(el, e.surface, stage.id, pose, 'pane', frame), snapshot(), tab, onTab, stageRoad(el, e.surface, stage.id)) as any
+      return card(el, heroArt(el, e.surface, stage.id, pose, 'pane', frame, smooth), snapshot(), tab, onTab, stageRoad(el, e.surface, stage.id)) as any
     }
     if (e.requestId !== PROBE) return next(e)
     const el: any = $.ui.resolve(e)

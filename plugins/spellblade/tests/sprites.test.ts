@@ -86,3 +86,11 @@ test('애니메이션 SVG: 한 장이면 보통 SVG 와 같다', async () => {
   const a = { grid: [row('a'), ...blank.slice(1)], palette: P }
   expect(framesToSvg([a], 4, 400)).toBe(gridToSvg(a.grid, a.palette, 4))
 })
+
+test('애니메이션 SVG: 프레임마다 길이를 다르게', async () => {
+  const a = { grid: [row('a'), ...blank.slice(1)], palette: P }
+  const b = { grid: [row('.b'), ...blank.slice(1)], palette: P }
+  const s = framesToSvg([a, b], 4, [2600, 400])
+  expect(s).toMatch(/dur="3000ms"/)
+  expect(s).toMatch(/keyTimes="0\.0000;0\.8667"/)
+})

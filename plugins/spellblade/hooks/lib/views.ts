@@ -8,7 +8,7 @@ import type { Quest } from './quests.ts'
 import { cropTop } from './sprites.ts'
 import type { Pose } from './status.ts'
 import { gridToRaster } from './to-raster.ts'
-import { gridToSvg } from './to-svg.ts'
+import { framesToSvg, gridToSvg } from './to-svg.ts'
 import { comma, formulaLine, memoryRate, shortNum } from './tokens.ts'
 
 export type { LogEntry }
@@ -51,6 +51,12 @@ export function baseView(p: Progress): CardView {
 }
 
 export type BandMode = 'panel' | 'line' | 'off'
+export type Motion = 'smooth' | 'frames'
+
+// userConfig.motion: smooth(데스크톱은 SVG 안에서 움직임) · frames(1차처럼 프레임 교체)
+export function motionOf(v: unknown): Motion {
+  return v === 'frames' ? 'frames' : 'smooth'
+}
 
 // userConfig.band 값 읽기. 모르는 값은 기본 panel
 export function bandModeOf(v: unknown): BandMode {
@@ -96,7 +102,15 @@ export type Els = { Box: Make; Text: Make; Button?: Make; Svg?: Make; Raster?: M
 const SVG_PIXEL = { band: 3, pane: 6 } as const
 
 // 터미널은 Raster(▀ 반칸), 그 밖은 Svg. 터미널의 resolve 도 Svg 를 내주지만 그려지지 않으므로 표면으로 고른다
-export function heroArt(el: Els, surface: string, stage: StageId, pose: Pose, size: 'band' | 'pane', frame: 0 | 1 = 0): unknown {
+// 데스크톱 smooth: 짝이 되는 자세는 같은 애니메이션 SVG 를 내서 다시 그려도 처음부터 시작하지 않는다
+function animated(stage: StageId, pose: Pose): { frames: ReturnType<typeof frameFor>[]; ms: number | number[] } | null {
+  if (pose === 'cast1' || pose === 'cast2') return { frames: [frameFor(stage, 'cast1'), frameFor(stage, 'cast2')], ms: 400 }
+  if (pose === 'idle' || pose === 'blink') return { frames: [frameFor(stage, 'idle'), frameFor(stage, 'blink')], ms: [2600, 400] }
+  if (pose === 'levelup') return { frames: [frameFor(stage, 'levelup', 0), frameFor(stage, 'levelup', 1)], ms: 400 }
+  return null
+}
+
+export function heroArt(el: Els, surface: string, stage: StageId, pose: Pose, size: 'band' | 'pane', frame: 0 | 1 = 0, smooth = false): unknown {
   const f = frameFor(stage, pose, frame)
   const alt = `${STAGES.find(s => s.id === stage)?.name ?? ''} 마검사`
   if (surface === 'terminal') {
@@ -106,6 +120,8 @@ export function heroArt(el: Els, surface: string, stage: StageId, pose: Pose, si
     return el.Raster(gridToRaster(grid, f.palette, `hero-${size}`))
   }
   if (!el.Svg) return null
+  const anim = smooth ? animated(stage, pose) : null
+  if (anim) return el.Svg({ source: framesToSvg(anim.frames, SVG_PIXEL[size], anim.ms), alt, isInteractive: true })
   return el.Svg({ source: gridToSvg(f.grid, f.palette, SVG_PIXEL[size]), alt })
 }
 

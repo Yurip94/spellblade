@@ -59,8 +59,8 @@ function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen
   return { clock, seen }
 }
 
-async function start($: Engine): Promise<void> {
-  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+async function start($: Engine, surface: 'terminal' | 'desktop' = 'terminal'): Promise<void> {
+  await $.session.start({ cwd: '/', surface, isInteractive: true })
 }
 
 const usage = (output: number, input = 0) => ({ input_tokens: input, output_tokens: output, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: 'm' })
@@ -746,4 +746,25 @@ test('/blade 로 다시 열면 상태 탭부터', async ($, on) => {
   await m.unmount()
   const again = await openCard($)
   expect(await again.find({ text: /승급의 길/ })).toBeTruthy()
+})
+
+// ---- 2차 Task 11: 데스크톱 부드러운 움직임 ----
+
+test('데스크톱 영창은 움직이는 SVG 하나', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON })
+  await start($, 'desktop')
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
+  const first = JSON.stringify(await m.find({ type: 'Svg' }))
+  expect(first).toMatch(/"isInteractive":true/)
+  expect(first).toMatch(/<animate/)
+  await clock.advance(400)
+  expect(JSON.stringify(await m.find({ type: 'Svg' }))).toBe(first)
+})
+
+test('데스크톱 쉬는 중에도 깜빡임은 SVG 안에서', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($, 'desktop')
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
+  expect(JSON.stringify(await m.find({ type: 'Svg' }))).toMatch(/dur=\\"3000ms\\"/)
 })

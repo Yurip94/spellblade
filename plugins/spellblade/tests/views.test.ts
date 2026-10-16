@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { progressOf } from '../hooks/lib/progress.ts'
-import { bandLineText, bandModeOf, baseView, comma, levelLabel, spinnerSuffix, xpBar, type CardView } from '../hooks/lib/views.ts'
+import { bandLineText, bandModeOf, baseView, comma, levelLabel, motionOf, spinnerSuffix, xpBar, type CardView } from '../hooks/lib/views.ts'
 
 test('천 단위 쉼표', async () => {
   expect(comma(1240)).toBe('1,240')
@@ -46,4 +46,11 @@ test('band 설정 읽기: 모르는 값은 panel', async () => {
   expect(bandModeOf('panel')).toBe('panel')
   expect(bandModeOf(undefined)).toBe('panel')
   expect(bandModeOf('weird')).toBe('panel')
+})
+
+test('motion 설정 읽기: 모르는 값은 smooth', async () => {
+  expect(motionOf('frames')).toBe('frames')
+  expect(motionOf('smooth')).toBe('smooth')
+  expect(motionOf(undefined)).toBe('smooth')
+  expect(motionOf('x')).toBe('smooth')
 })
