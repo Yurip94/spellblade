@@ -8,6 +8,9 @@ import { scaleGrid } from './sprites.ts'
 import type { Pose } from './status.ts'
 import { gridToRaster } from './to-raster.ts'
 import { gridToSvg } from './to-svg.ts'
+import { comma } from './tokens.ts'
+
+export { comma }
 
 
 // 화면이 그리는 데 필요한 것 전부
@@ -29,9 +32,6 @@ export function bandModeOf(v: unknown): BandMode {
   return v === 'line' || v === 'off' ? v : 'panel'
 }
 
-export function comma(n: number): string {
-  return String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-}
 
 // 스피너 단어 뒤에 붙는 한 줄: " · ⚔️ Lv.15 마검사 +34xp"
 export function spinnerSuffix(p: Progress, turnXp: number): string {
