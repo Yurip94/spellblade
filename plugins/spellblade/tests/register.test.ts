@@ -14,7 +14,8 @@ type Seen = { commands: string[]; toasts: { text: string; timeoutMs?: number }[]
 
 // 키트에는 엔진이 없어서 플러그인이 부르는 $ 호출에 테스트가 맨 아래에서 답한다.
 // 테스트의 훅은 모두 첫 $ 호출 전에 걸어야 하므로: beneath → (테스트 훅) → start
-type BeneathOpts = { now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string; failSet?: boolean; beforeKeys?: () => Promise<void>; limits?: { kind: string; percentUsed: number; resetsAt?: string }[] }
+// failMeta: profile · log · q: 같은 알림 칸 저장만 실패시킨다(테스트 중간에 켤 수 있다)
+type BeneathOpts = { now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string; failSet?: boolean; failMeta?: boolean; beforeKeys?: () => Promise<void>; limits?: { kind: string; percentUsed: number; resetsAt?: string }[] }
 
 function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen } {
   const clock = mock.clock(on, { now: opts.now ?? Date.UTC(2026, 9, 16, 3, 0) })
@@ -24,6 +25,7 @@ function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen
   on('store.set', async (_$, e) => {
     seen.setCalls++
     if (opts.failSet && e.key.startsWith('d:')) throw new Error('저장소가 가득 찼다')
+    if (opts.failMeta && !e.key.startsWith('d:')) throw new Error('알림 칸을 쓰지 못했다')
     seen.store.set(e.key, structuredClone(e.value))
     return { value: undefined }
   })
@@ -955,4 +957,65 @@ test('토큰 수가 이상해도 그날 칸이 망가지지 않는다', async ($
   expect(isEntry(stored)).toBe(true)
   expect(stored).toMatchObject({ w: 2_000, out: 2_000, in: 0, cr: 0 })
   expect(await bandText($)).not.toMatch(/NaN/)
+})
+
+test('턴 끝 알림 저장이 실패해도 턴 기록은 바로 저장된다', async ($, on) => {
+  const DAWN = local(2026, 9, 16, 3, 0)
+  const opts: BeneathOpts = { now: DAWN, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } }
+  const { seen } = beneath(on, opts)
+  await start($)
+  opts.failMeta = true
+  // 새벽 턴 → 칭호 「새벽의 검사」를 profile 에 쓰려다 실패한다
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  expect(seen.store.get(`d:${dayKey(DAWN, TZ)}:me`)).toMatchObject({ turns: 1, night: 1 })
+})
+
+test('오류 난 도구는 최고 콤보에 들어가지 않는다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON })
+  answerTools(on)
+  await start($)
+  toolMode = 'ok'
+  for (let i = 0; i < 2; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  toolMode = 'error'
+  await $.tool.call({ tool: 'Bash', command: 'false' } as any)
+  toolMode = 'ok'
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ combo: 2 })
+})
+
+test('중단 · 오류 · 거절로 끝난 턴은 턴 기록에 넣지 않는다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON })
+  await start($)
+  const ends = [
+    { isAborted: true, reason: 'aborted' },
+    { isAborted: false, reason: 'error' },
+    { isAborted: false, reason: 'refusal', refusal: { category: null, explanation: null } },
+  ]
+  for (const end of ends) {
+    await $.turn.start({ text: 'hi', turnId: 't' })
+    await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, ...end } as any)
+  }
+  const e = (seen.store.get(`d:${TODAY}:me`) ?? {}) as Record<string, number>
+  expect([e.turns ?? 0, e.fast ?? 0, e.clean ?? 0]).toEqual([0, 0, 0])
+})
+
+test('반격이 있었던 중단 턴은 「반격 없이 연속」을 끊는다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON })
+  answerTools(on)
+  await start($)
+  const answered = async () => {
+    await $.turn.start({ text: 'hi', turnId: 't' })
+    await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  }
+  await answered()
+  await answered()
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  toolMode = 'error'
+  await $.tool.call({ tool: 'Bash', command: 'false' } as any)
+  toolMode = 'ok'
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: true, reason: 'aborted' })
+  await answered()
+  await answered()
+  expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ turns: 4, clean: 2 })
 })

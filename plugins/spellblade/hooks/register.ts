@@ -401,12 +401,13 @@ async function addUsage($: EngineInterface, w: number, u: { input_tokens: number
 }
 
 // 경험치가 늘어난 뒤: 의뢰 · 칭호 · 레벨업을 알린다. 알림은 한 줄로 세우고, 다른 창이 이미 알렸으면 조용히
+// 알림은 덤이라 저장에 실패해도 던지지 않는다(턴 끝 저장이 다음 주기로 밀리지 않게)
 function afterGain($: EngineInterface): Promise<void> {
   return announcing(async () => {
     await announceQuests($)
     await announceTitles($)
     await announceLevel($)
-  })
+  }).catch(() => {})
 }
 
 async function announceLevel($: EngineInterface): Promise<void> {
@@ -668,17 +669,22 @@ export const register: Register = (on, options) => {
     if (!e.agentId) {
       clockNow = await $.clock.now()
       activity = { ...activity, working: false, lastActiveAt: clockNow }
-      const day = dayKey(clockNow, tz)
-      const entry = mineOn(day)
-      entry.turns = (entry.turns ?? 0) + 1
-      if (e.durationMs <= FAST_TURN_MS) entry.fast = (entry.fast ?? 0) + 1
-      const hour = new Date(clockNow - tz * 60_000).getUTCHours()
-      if (hour >= NIGHT_HOURS[0] && hour < NIGHT_HOURS[1]) entry.night = (entry.night ?? 0) + 1
-      cleanRun = turnHadError ? 0 : cleanRun + 1
-      entry.clean = Math.max(entry.clean ?? 0, cleanRun)
-      dirty.add(day)
-      // 정상 답변으로 끝난 턴만 승리 (중단 · API 오류 · 거절은 아님)
-      if (!e.isAborted && e.reason === 'answer') activity = withFlash(activity, 'victory', clockNow, victorySummary())
+      // 턴 기록(턴 수 · 빠른 턴 · 새벽 · 반격 없이 연속)과 승리는 정상 답변으로 끝난 턴만 —
+      // Esc 로 끊은 턴 · API 오류 · 거절로 의뢰를 채우지 못하게. 반격은 어떻게 끝났든 연속을 끊는다
+      const answered = !e.isAborted && e.reason === 'answer'
+      if (turnHadError) cleanRun = 0
+      else if (answered) cleanRun += 1
+      if (answered) {
+        const day = dayKey(clockNow, tz)
+        const entry = mineOn(day)
+        entry.turns = (entry.turns ?? 0) + 1
+        if (e.durationMs <= FAST_TURN_MS) entry.fast = (entry.fast ?? 0) + 1
+        const hour = new Date(clockNow - tz * 60_000).getUTCHours()
+        if (hour >= NIGHT_HOURS[0] && hour < NIGHT_HOURS[1]) entry.night = (entry.night ?? 0) + 1
+        entry.clean = Math.max(entry.clean ?? 0, cleanRun)
+        dirty.add(day)
+        activity = withFlash(activity, 'victory', clockNow, victorySummary())
+      }
       lastTurn = { ...turnTokens, xp: Math.floor(turnW / 1000) }
       await afterGain($)
     }
@@ -710,7 +716,6 @@ export const register: Register = (on, options) => {
     entry.swings += 1
     entry.skills = (entry.skills ?? 0) | skill.bit
     if (skill.id === 'clone') entry.agents = (entry.agents ?? 0) + 1
-    if (main) entry.combo = Math.max(entry.combo ?? 0, combo)
     dirty.add(day)
     if (out.isError) {
       if (main) {
@@ -718,9 +723,13 @@ export const register: Register = (on, options) => {
         turnHadError = true
         activity = withFlash(activity, 'hit', now)
       }
-    } else if (e.tool === 'Bash') {
-      const message = applyBonus(String((e as { command?: unknown }).command ?? ''), day)
-      if (message) activity = withFlash(activity, 'loot', now, message)
+    } else {
+      // 최고 콤보는 성공한 호출까지만 센다
+      if (main) entry.combo = Math.max(entry.combo ?? 0, combo)
+      if (e.tool === 'Bash') {
+        const message = applyBonus(String((e as { command?: unknown }).command ?? ''), day)
+        if (message) activity = withFlash(activity, 'loot', now, message)
+      }
     }
     await afterGain($)
     $.ui.invalidate('ui.render')
