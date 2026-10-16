@@ -4,15 +4,15 @@ import { bonusesFor, subjectJosa } from './lib/bonus.ts'
 import { skillOf } from './lib/skills.ts'
 import { addSum, allowedBonus, dayKey, entryKey, isEntry, isLogEntry, isProfile, parseEntryKey, sumByDay, sumEntries, sumXp, ZERO, type Entry, type LogEntry, type Sum } from './lib/ledger.ts'
 import { limitsOf, resetText, type Gauge } from './lib/limits.ts'
-import { earnedTitles, longestStreak, streakOf, titleName, type Lifetime } from './lib/progression.ts'
+import { earnedTitles, longestStreak, statsOf, streakOf, TITLES, titleName, type Lifetime } from './lib/progression.ts'
 import { questReward, questStatus } from './lib/quests.ts'
 import { memoryRate, shortNum } from './lib/tokens.ts'
-import { levelOf, progressOf, stageOf, weightOf, xpForLevel } from './lib/progress.ts'
+import { equipmentAt, levelOf, progressOf, stageOf, weightOf, xpForLevel } from './lib/progress.ts'
 import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
 import { gridToRaster } from './lib/to-raster.ts'
 import { gridToSvg } from './lib/to-svg.ts'
 import { demoFrame, poseAt, withFlash, type Activity, type Mood } from './lib/status.ts'
-import { bandLineText, bandModeOf, bandPanel, card, heroArt, spinnerSuffix, type CardView, type Els } from './lib/views.ts'
+import { bandLineText, bandModeOf, bandPanel, baseView, card, heroArt, spinnerSuffix, type CardView, type Els } from './lib/views.ts'
 
 // ---- 모듈 상태 (session.start 의 load 가 매번 새로 채운다) ----
 
@@ -40,6 +40,10 @@ let pastWeekQuestXp = 0
 let activeDays = new Set<string>() // XP 를 1 이상 얻은 지난 날
 let knownTitles = new Set<string>() // 이미 알린 칭호
 let questsNotified = new Set<number>() // 오늘 이미 알린 의뢰 번호
+let titleOrder: string[] = [] // 얻은 순서
+let chosenTitle: string | null = null // /blade title 로 고른 칭호
+let lastTurn: CardView['turn'] = null
+let banner: { text: string; until: number } | null = null
 
 let turnW = 0
 let activity: Activity = { working: false, lastActiveAt: 0, flash: null }
@@ -126,31 +130,61 @@ function demoNow(): ReturnType<typeof demoFrame> {
   return f
 }
 
+function bannerNow(): string | null {
+  return banner && clockNow < banner.until ? banner.text : null
+}
+
+// 이름 앞 칭호: 고른 것이 있으면 그것, 없으면 가장 최근에 얻은 것
+function currentTitle(earned: readonly string[]): string | null {
+  const id = chosenTitle && earned.includes(chosenTitle) ? chosenTitle : [...titleOrder].reverse().find(t => earned.includes(t)) ?? earned[earned.length - 1]
+  return id ? titleName(id) : null
+}
+
 function snapshot(): CardView {
   const t = todaySum()
   const demo = demoNow()
   if (demo) {
     const stage = STAGES.find(s => s.id === demo.stage) ?? STAGES[0]
-    return { name, progress: progressOf(xpForLevel(stage.minLevel)), todayXp: 0, weekXp: 0, todaySwings: 0, line: demo.line, log, isDemo: true }
+    return { ...baseView(progressOf(xpForLevel(stage.minLevel))), name, line: demo.line, log, isDemo: true }
   }
+  const progress = progressOf(totalXp())
+  const life = lifetime()
+  const titles = earnedTitles(life)
+  const m = mood()
   return {
+    ...baseView(progress),
     name,
-    progress: progressOf(totalXp()),
+    title: currentTitle(titles),
     todayXp: sumXp(t) + todayQuestXp(),
     weekXp: sumXp(addSum(pastWeek, t)) + pastWeekQuestXp + todayQuestXp(),
     todaySwings: t.swings,
-    line: poseAt(activity, clockNow, mood()).line,
+    line: poseAt(activity, clockNow, m).line,
     log,
-    isDemo: false,
+    limits,
+    resets: { hp: m.hpReset ?? '', mp: m.mpReset ?? '' },
+    quests: questStatus(today, t, sumXp(t)),
+    streak: life.streak,
+    memory: memoryRate(t),
+    context: contextPercent,
+    combo,
+    bestCombo: t.combo,
+    banner: bannerNow(),
+    turn: activity.working ? { ...turnTokens, xp: Math.floor(turnW / 1000) } : lastTurn,
+    today: t,
+    equipment: equipmentAt(progress.level),
+    stats: statsOf(life),
+    titles,
   }
 }
 
 // 지금 그릴 단계 · 자세. 바뀔 때만 다시 그리려고 열쇠도 같이
-function drawState(): { stage: CardView['progress']['stage']; pose: ReturnType<typeof poseAt>['pose']; key: string } {
+function drawState(): { stage: CardView['progress']['stage']; pose: ReturnType<typeof poseAt>['pose']; frame: 0 | 1; key: string } {
   const v = snapshot()
   const demo = demoNow()
   const { pose, line } = demo ?? poseAt(activity, clockNow, mood())
-  return { stage: v.progress.stage, pose, key: `${demo ? 'demo' : ''}|${v.progress.stage.id}|${pose}|${line}|${v.progress.xp}` }
+  // 레벨업 빛기둥은 두 프레임을 번갈아
+  const frame: 0 | 1 = pose === 'levelup' && Math.floor(clockNow / MS.castFrame) % 2 === 1 ? 1 : 0
+  return { stage: v.progress.stage, pose, frame, key: `${demo ? 'demo' : ''}|${v.progress.stage.id}|${pose}|${frame}|${line}|${v.progress.xp}|${v.banner ?? ''}` }
 }
 
 async function readAll($: EngineInterface): Promise<[string, unknown][]> {
@@ -207,7 +241,9 @@ async function loadNow($: EngineInterface): Promise<void> {
     if (dayXp >= 1) activeDays.add(day)
   }
   questsNotified = new Set(Array.isArray(notified) ? notified.filter((n): n is number => typeof n === 'number') : [])
-  knownTitles = new Set(isProfile(profile) && Array.isArray(profile.titles) ? profile.titles : [])
+  titleOrder = isProfile(profile) && Array.isArray(profile.titles) ? profile.titles.filter(t => TITLES.some(x => x.id === t)) : []
+  knownTitles = new Set(titleOrder)
+  chosenTitle = isProfile(profile) && typeof profile.title === 'string' ? profile.title : null
   lastSyncAt = now
   clockNow = now
   activity = { ...activity, lastActiveAt: now }
@@ -218,6 +254,7 @@ async function loadNow($: EngineInterface): Promise<void> {
   if (!isProfile(profile) || !Array.isArray(profile.titles)) {
     const base = isProfile(profile) ? profile : { name, createdAt: now, lastLevel: levelOf(totalXp()) }
     knownTitles = new Set(earned)
+    titleOrder = [...earned]
     await $.store.set('profile', { ...base, titles: earned })
   }
   if (!Array.isArray(notified)) {
@@ -328,9 +365,17 @@ async function afterGain($: EngineInterface, beforeXp: number): Promise<void> {
   if (after <= last) return
   activity = withFlash(activity, 'levelup', clockNow)
   $.ui.toast(`⬆ ${name} Lv.${after}!`)
+  banner = { text: `✨ LEVEL UP!  Lv.${last} → Lv.${after} ✨`, until: clockNow + MS.levelUp }
   const stage = stageOf(after)
   if (stage.id !== stageOf(last).id) {
     $.ui.toast(`🎉 ${name}${subjectJosa(name)} ${stage.name}${subjectJosa(stage.name)} 되었어요!`, { timeoutMs: MS.stageToast })
+    banner = { text: `🎉 승급!  ${stageOf(last).name} → ${stage.name}`, until: clockNow + MS.stageToast }
+    try {
+      // 승급은 카드 창을 저절로 연다(터미널은 넓은 창에서만 보인다)
+      await $.ui.open({ id: PANE, title: '마검사', closeOnEscape: true })
+    } catch {
+      // 못 열어도 배너 · 토스트는 남는다
+    }
   }
   // 다른 창이 그사이 남긴 일지를 지우지 않도록 저장된 것을 다시 읽고 앞에 붙인다
   const saved = await $.store.get('log')
@@ -373,6 +418,7 @@ async function announceTitles($: EngineInterface): Promise<void> {
   const saved = new Set(isProfile(stored) && Array.isArray(stored.titles) ? stored.titles : [])
   for (const id of fresh) {
     knownTitles.add(id)
+    titleOrder.push(id)
     if (saved.has(id)) continue
     $.ui.toast(`🏅 칭호 「${titleName(id)}」을 얻었어요`)
     await addLog($, { at: clockNow, level: levelOf(totalXp()), stage: stageOf(levelOf(totalXp())).id, kind: 'title', text: `칭호 「${titleName(id)}」` })
@@ -539,6 +585,7 @@ export const register: Register = (on, options) => {
       dirty.add(day)
       // 정상 답변으로 끝난 턴만 승리 (중단 · API 오류 · 거절은 아님)
       if (!e.isAborted && e.reason === 'answer') activity = withFlash(activity, 'victory', clockNow, victorySummary())
+      lastTurn = { ...turnTokens, xp: Math.floor(turnW / 1000) }
       await afterGain($, before)
     }
     await flushQuietly($)
@@ -595,20 +642,23 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || band === 'off') return next(e)
     const below = await next(e)
+    clockNow = await $.clock.now() // 그리는 순간의 시각(배너 · 자세가 틱을 기다리지 않게)
     const el = $.ui.resolve(e) as unknown as Els
     const v = snapshot()
-    const { stage, pose } = drawState()
-    const roomy = band === 'panel' && e.props.bodyColumns >= 64 && e.props.maxRows >= 8
-    const art = roomy ? heroArt(el, e.surface, stage.id, pose, 'band') : null
+    const { stage, pose, frame } = drawState()
+    // 그림판은 8줄 그림 + 다른 Mod 줄 여유 2줄 → 10줄 이상에서만
+    const roomy = band === 'panel' && e.props.bodyColumns >= 64 && e.props.maxRows >= 10
+    const art = roomy ? heroArt(el, e.surface, stage.id, pose, 'band', frame) : null
     const mine = art ? bandPanel(el, art, v) : el.Text({ wrap: 'truncate-end', children: [bandLineText(v)] })
     return el.Box({ flexDirection: 'column', children: [mine, below] }) as any
   })
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId === PANE) {
+      clockNow = await $.clock.now()
       const el = $.ui.resolve(e) as unknown as Els
-      const { stage, pose } = drawState()
-      return card(el, heroArt(el, e.surface, stage.id, pose, 'pane', e.props.bodyColumns), snapshot()) as any
+      const { stage, pose, frame } = drawState()
+      return card(el, heroArt(el, e.surface, stage.id, pose, 'pane', frame), snapshot()) as any
     }
     if (e.requestId !== PROBE) return next(e)
     const el: any = $.ui.resolve(e)

@@ -634,3 +634,51 @@ test('처음 켤 때 한도를 읽는다', async ($, on) => {
   await start($)
   expect(await bandText($)).toMatch(/기진맥진/)
 })
+
+// ---- 2차 Task 9: 밴드 v2 · 연출 ----
+
+test('measure 뒤 밴드에 체력(주간) · 마나(5시간)', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  await $.session.measure({ context: { window: 1_000_000, percent: 62 }, rateLimits: [{ kind: 'five_hour', percentUsed: 38 }, { kind: 'seven_day', percentUsed: 59 }], changed: ['rateLimits'] } as any)
+  const t = await bandText($)
+  expect(t).toMatch(/❤️ [▓░]+ 41%/)
+  expect(t).toMatch(/🔷 [▓░]+ 62%/)
+  expect(t).toMatch(/🎒 62%/)
+})
+
+test('한도가 없으면 체력 · 마나 줄을 숨긴다', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const t = await bandText($)
+  expect(t).not.toMatch(/❤️/)
+  expect(t).not.toMatch(/🔷/)
+})
+
+test('그림판은 10줄 이상에서만', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const low = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND({ maxRows: 9, scroll: { offset: 0, bodyRows: 9 } }) })
+  expect(await low.find({ type: 'Raster' })).toBeFalsy()
+  const ok = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND({ maxRows: 10, scroll: { offset: 0, bodyRows: 10 } }) })
+  expect(await ok.find({ type: 'Svg' })).toBeTruthy()
+})
+
+test('레벨업 배너 3초', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
+  answerStep(on, 60_000)
+  await start($)
+  await oneTurn($)
+  expect(await bandText($)).toMatch(/LEVEL UP!  Lv\.1 → Lv\.2/)
+  await clock.advance(3_100)
+  expect(await bandText($)).not.toMatch(/LEVEL UP/)
+})
+
+test('승급하면 배너와 카드 창', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(959_000), profile: { name: '렌', createdAt: 1, lastLevel: 4, titles: ['first'] } } })
+  answerStep(on, 1_000)
+  await start($)
+  await oneTurn($)
+  expect(seen.opened).toContain('spellblade')
+  expect(await bandText($)).toMatch(/승급!  수련생 → 검사/)
+})

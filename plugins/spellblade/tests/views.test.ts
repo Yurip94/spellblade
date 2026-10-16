@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { progressOf } from '../hooks/lib/progress.ts'
-import { bandLineText, bandModeOf, comma, spinnerSuffix, xpBar, type CardView } from '../hooks/lib/views.ts'
+import { bandLineText, bandModeOf, baseView, comma, levelLabel, spinnerSuffix, xpBar, type CardView } from '../hooks/lib/views.ts'
 
 test('천 단위 쉼표', async () => {
   expect(comma(1240)).toBe('1,240')
@@ -13,15 +13,11 @@ test('스피너 문구', async () => {
   expect(spinnerSuffix(progressOf(12000), 34)).toBe(' · ⚔️ Lv.15 마검사 +34xp')
 })
 
-const view = (o: { xp: number; todayXp?: number; name?: string }): CardView => ({
+const view = (o: { xp: number; todayXp?: number; name?: string; hp?: number; mp?: number }): CardView => ({
+  ...baseView(progressOf(o.xp)),
   name: o.name ?? '렌',
-  progress: progressOf(o.xp),
   todayXp: o.todayXp ?? 0,
-  weekXp: 0,
-  todaySwings: 0,
-  line: '쉬는 중',
-  log: [],
-  isDemo: false,
+  limits: { hp: o.hp === undefined ? null : { left: o.hp, resetsAt: null }, mp: o.mp === undefined ? null : { left: o.mp, resetsAt: null } },
 })
 
 test('XP 막대', async () => {
@@ -30,8 +26,18 @@ test('XP 막대', async () => {
   expect(xpBar(1, 8)).toBe('▓▓▓▓▓▓▓▓')
 })
 
-test('밴드 한 줄', async () => {
-  expect(bandLineText(view({ xp: 12000, todayXp: 1240 }))).toBe('⚔️ 렌 · Lv.15 마검사 ▓░░░░░░░ 14% · 오늘 +1,240 XP')
+test('밴드 한 줄 v2', async () => {
+  expect(bandLineText(view({ xp: 12000, todayXp: 1240, hp: 62, mp: 41 }))).toBe('⚔️ 렌 Lv.15 ▓░░░░░░░ 14% · ❤️62 🔷41 · 오늘 +1,240')
+})
+
+test('한도가 없으면 한 줄에 체력 · 마나가 없다', async () => {
+  expect(bandLineText(view({ xp: 12000, todayXp: 1240 }))).toBe('⚔️ 렌 Lv.15 ▓░░░░░░░ 14% · 오늘 +1,240')
+  expect(bandLineText(view({ xp: 12000, mp: 41 }))).toBe('⚔️ 렌 Lv.15 ▓░░░░░░░ 14% · 🔷41 · 오늘 +0')
+})
+
+test('만렙 표기', async () => {
+  expect(levelLabel(progressOf(208_860 + 12_000))).toBe('만렙 · 명성 ★12')
+  expect(levelLabel(progressOf(12_000))).toBe('Lv.15/60')
 })
 
 test('band 설정 읽기: 모르는 값은 panel', async () => {
