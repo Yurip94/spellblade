@@ -34,9 +34,24 @@ export function bonusesFor(command: string): Bonus[] {
   return out
 }
 
-// "렌이 · 마검사가": 마지막 한글 글자에 받침이 있으면 이, 없으면 가
-export function subjectJosa(word: string): string {
+// 마지막 한글 글자에 받침이 있으면 앞의 것, 없으면 뒤의 것. 한글이 아니면 둘 다 적는다
+function josa(word: string, withFinal: string, without: string): string {
   const c = word.charCodeAt(word.length - 1)
-  if (c >= 0xac00 && c <= 0xd7a3) return (c - 0xac00) % 28 === 0 ? '가' : '이'
-  return '이(가)'
+  if (c >= 0xac00 && c <= 0xd7a3) return (c - 0xac00) % 28 === 0 ? without : withFinal
+  return `${withFinal}(${without})`
+}
+
+// "렌이 · 마검사가"
+export function subjectJosa(word: string): string {
+  return josa(word, '이', '가')
+}
+
+// "천검은 · 해결사는"
+export function topicJosa(word: string): string {
+  return josa(word, '은', '는')
+}
+
+// "첫 걸음을 · 봉인술사를"
+export function objectJosa(word: string): string {
+  return josa(word, '을', '를')
 }

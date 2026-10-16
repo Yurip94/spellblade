@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { DEFAULT_NAME, FAST_TURN_MS, LOG_MAX, MS, NIGHT_HOURS, STAGES } from './lib/balance.ts'
-import { bonusesFor, subjectJosa } from './lib/bonus.ts'
+import { bonusesFor, objectJosa, subjectJosa, topicJosa } from './lib/bonus.ts'
 import { skillOf } from './lib/skills.ts'
 import { addSum, allowedBonus, dayKey, entryKey, isEntry, isLogEntry, isProfile, parseEntryKey, sumByDay, sumEntries, sumXp, ZERO, type Entry, type LogEntry, type Sum } from './lib/ledger.ts'
 import { limitsOf, resetText, type Gauge } from './lib/limits.ts'
@@ -75,8 +75,8 @@ const PROBE_GRID: Grid = Array.from({ length: HEIGHT }, (_, y) =>
 )
 
 const COMMAND = {
-  description: '마검사 카드 열기 (name <이름> · demo · reset)',
-  argumentHint: '[name <이름> | demo | reset]',
+  description: '마검사 카드 열기 (name <이름> · title [칭호] · demo · reset)',
+  argumentHint: '[name <이름> | title [칭호] | demo | reset]',
   immediate: true,
 } as const
 
@@ -473,6 +473,26 @@ async function rename($: EngineInterface, next: string): Promise<string> {
   return `이제부터 「${next}」이에요`
 }
 
+// /blade title: 얻은 칭호 목록 · /blade title <칭호>: 이름 앞에 달 칭호 고르기
+async function chooseTitle($: EngineInterface, wanted: string): Promise<string> {
+  const earned = earnedTitles(lifetime())
+  if (!wanted) {
+    if (earned.length === 0) return '아직 얻은 칭호가 없어요. /blade 카드의 [2] 의뢰 탭에서 조건을 볼 수 있어요'
+    const names = earned.map(id => titleName(id)).join(', ')
+    const now = currentTitle(earned)
+    return `지금: ${now ? `「${now}」` : '없음'} · 얻은 칭호: ${names} · 고르려면 /blade title <칭호>`
+  }
+  const t = TITLES.find(x => x.name === wanted)
+  if (!t) return `그런 칭호는 없어요. 얻은 칭호는 /blade title 로 볼 수 있어요`
+  if (!earned.includes(t.id)) return `「${t.name}」${topicJosa(t.name)} 아직 얻지 못했어요`
+  const stored = await $.store.get('profile')
+  const base = isProfile(stored) ? stored : { name, createdAt: clockNow, lastLevel: levelOf(totalXp()) }
+  await $.store.set('profile', { ...base, title: t.id })
+  chosenTitle = t.id
+  $.ui.invalidate('ui.render')
+  return `이제 「${t.name}」${objectJosa(t.name)} 달아요`
+}
+
 async function reset($: EngineInterface): Promise<string> {
   let answer = ''
   try {
@@ -689,6 +709,7 @@ export const register: Register = (on, options) => {
       return {}
     }
     if (word === 'name') return { text: await rename($, e.args.trim().slice(4).trim()) }
+    if (word === 'title') return { text: await chooseTitle($, e.args.trim().slice(5).trim()) }
     if (word === 'demo') {
       clockNow = await $.clock.now()
       demoStartedAt = clockNow
@@ -700,6 +721,6 @@ export const register: Register = (on, options) => {
       await $.ui.open({ id: PROBE, title: '마검사 시험', focus: true, closeOnEscape: true })
       return { text: await probeText($) }
     }
-    return { text: '쓸 수 있는 명령: /blade · /blade name <이름> · /blade demo · /blade reset' }
+    return { text: '쓸 수 있는 명령: /blade · /blade name <이름> · /blade title [칭호] · /blade demo · /blade reset' }
   }).catch(() => ({ text: '마검사 명령을 처리하지 못했어요' }))
 }

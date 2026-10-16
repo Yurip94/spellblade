@@ -768,3 +768,35 @@ test('데스크톱 쉬는 중에도 깜빡임은 SVG 안에서', async ($, on) =
   const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
   expect(JSON.stringify(await m.find({ type: 'Svg' }))).toMatch(/dur=\\"3000ms\\"/)
 })
+
+// ---- 2차 Task 12: /blade title ----
+
+const VETERAN_STORE = { [`d:${YESTERDAY}:x`]: { ...entry(5_000), swings: 1_000 } }
+
+test('칭호 목록', async ($, on) => {
+  beneath(on, { now: NOON, store: VETERAN_STORE })
+  await start($)
+  const text = await blade($, 'title')
+  expect(text).toMatch(/얻은 칭호: 첫 걸음, 백전노장/)
+})
+
+test('칭호 고르기', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: VETERAN_STORE })
+  await start($)
+  expect(await blade($, 'title 첫 걸음')).toBe('이제 「첫 걸음」을 달아요')
+  expect(seen.store.get('profile')).toMatchObject({ title: 'first' })
+  expect(await bandText($)).toMatch(/「첫 걸음」 렌/)
+})
+
+test('못 얻은 칭호는 고를 수 없다', async ($, on) => {
+  beneath(on, { now: NOON, store: VETERAN_STORE })
+  await start($)
+  expect(await blade($, 'title 천검')).toBe('「천검」은 아직 얻지 못했어요')
+  expect(await blade($, 'title 없는칭호')).toMatch(/그런 칭호는 없어요/)
+})
+
+test('얻은 칭호가 없으면 알려 준다', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  expect(await blade($, 'title')).toMatch(/아직 얻은 칭호가 없어요/)
+})
