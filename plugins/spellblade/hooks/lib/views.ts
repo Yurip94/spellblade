@@ -1,15 +1,15 @@
-import { frameFor } from './art.ts'
+import { frameFor, silhouette } from './art.ts'
 import { STAGES, type StageId } from './balance.ts'
 import { ZERO, type LogEntry, type Sum } from './ledger.ts'
 import type { Gauge } from './limits.ts'
-import { equipmentAt, type Progress } from './progress.ts'
-import type { TitleId } from './progression.ts'
+import { equipmentAt, xpForLevel, type Progress } from './progress.ts'
+import { TITLES, type TitleId } from './progression.ts'
 import type { Quest } from './quests.ts'
 import { cropTop } from './sprites.ts'
 import type { Pose } from './status.ts'
 import { gridToRaster } from './to-raster.ts'
 import { gridToSvg } from './to-svg.ts'
-import { comma } from './tokens.ts'
+import { comma, formulaLine, memoryRate, shortNum } from './tokens.ts'
 
 export type { LogEntry }
 export { comma }
@@ -91,7 +91,7 @@ export function bandLineText(v: CardView): string {
 
 // $.ui.resolve(e) 에서 쓰는 요소만
 type Make = (props: Record<string, unknown>) => unknown
-export type Els = { Box: Make; Text: Make; Svg?: Make; Raster?: Make }
+export type Els = { Box: Make; Text: Make; Button?: Make; Svg?: Make; Raster?: Make }
 
 const SVG_PIXEL = { band: 3, pane: 6 } as const
 
@@ -145,43 +145,129 @@ export function bandPanel(el: Els, art: unknown, v: CardView): unknown {
   return el.Box({ flexDirection: 'row', columnGap: 2, children: [art, el.Box({ flexDirection: 'column', justifyContent: 'center', children: lines })] })
 }
 
-function stageRoad(el: Els, v: CardView): unknown[] {
-  const now = v.progress.stage.id
-  const at = STAGES.findIndex(s => s.id === now)
-  return STAGES.map((s, i) => {
-    if (i < at) return text(el, `  ✓ ${s.emoji} ${s.name} (Lv.${s.minLevel})`, { dimColor: true })
-    if (i === at) return text(el, `  ▶ ${s.emoji} ${s.name} (Lv.${s.minLevel})`, { bold: true })
-    return text(el, `  ? ??? (Lv.${s.minLevel})`, { dimColor: true })
-  })
+// ---- 카드 창: [1] 상태 · [2] 의뢰 · [3] 기록 ----
+
+export type Tab = 1 | 2 | 3
+
+const QUEST_ICON: Record<string, string> = { swings: '⚔️', commits: '📦', clean: '🛡️', combo: '💥', skills: '📚', xp: '⭐', fast: '💨', agents: '👥' }
+
+function section(el: Els, title: string, rows: unknown[]): unknown {
+  return el.Box({ flexDirection: 'column', children: [text(el, title, { bold: true }), ...rows] })
 }
 
-function journal(el: Els, v: CardView): unknown[] {
-  if (v.log.length === 0) return [text(el, '  아직 기록이 없어요', { dimColor: true })]
-  return v.log.slice(0, 5).map(l => {
-    const s = STAGES.find(x => x.id === l.stage)
-    return text(el, `  Lv.${l.level} ${s?.emoji ?? ''} ${s?.name ?? ''}`)
-  })
+function statBar(el: Els, icon: string, label: string, value: number): unknown {
+  return text(el, `  ${icon} ${label} ${String(value).padStart(2, ' ')} ${xpBar(value / 99, 12)}`)
 }
 
-export function card(el: Els, art: unknown, v: CardView): unknown {
+function statusTab(el: Els, v: CardView, road?: unknown[]): unknown[] {
   const p = v.progress
+  const eq = v.equipment
+  const gauges = gaugesLine(v)
+  const nextLine = eq.next
+    ? `  다음 장비: ${eq.next.weapon} — Lv.${eq.next.stage.minLevel}, 앞으로 ${comma(Math.max(0, xpForLevel(eq.next.stage.minLevel) - p.xp))} XP`
+    : '  다음 장비: 없음 — 마지막 단계예요'
+  const at = STAGES.findIndex(s => s.id === p.stage.id)
+  const names = STAGES.map((s, i) =>
+    text(el, `  ${i < at ? '✓' : i === at ? '▶' : '·'} ${s.emoji} ${s.name} (Lv.${s.minLevel})`, i === at ? { bold: true } : { dimColor: i > at }),
+  )
+  return [
+    el.Box({
+      flexDirection: 'column',
+      children: [
+        text(el, `${p.stage.emoji} ${v.title ? `「${v.title}」 ` : ''}${v.name} · ${p.stage.name} ${levelLabel(p)}`, { bold: true }),
+        text(el, xpLine(p, 20)),
+        ...(gauges ? [text(el, gauges)] : []),
+        text(el, `오늘 +${comma(v.todayXp)} XP · 이번 주 +${comma(v.weekXp)} XP · 오늘 베기 ${comma(v.todaySwings)}번`),
+        text(el, `지금: ${v.line}`, { dimColor: true }),
+      ],
+    }),
+    section(el, '장비', [
+      text(el, `  무기 ${eq.weapon}${eq.plus ? ` +${eq.plus}` : ''} · 방어구 ${eq.armor} · 장신구 ${eq.trinket}`),
+      text(el, nextLine, { dimColor: true }),
+    ]),
+    section(el, '능력치', [
+      statBar(el, '💪', '힘  ', v.stats.str),
+      statBar(el, '🧠', '지력', v.stats.int),
+      statBar(el, '💨', '민첩', v.stats.agi),
+      statBar(el, '🍀', '행운', v.stats.luk),
+    ]),
+    section(el, '승급의 길', [...(road && road.length ? [el.Box({ flexDirection: 'row', columnGap: 1, children: road })] : []), ...names]),
+  ]
+}
+
+function questTab(el: Els, v: CardView): unknown[] {
+  const quests = v.quests.map(q => {
+    const icon = QUEST_ICON[q.quest.kind] ?? '•'
+    const shown = Math.min(q.value, q.quest.target)
+    return text(el, `  ${q.done ? '✓' : icon} ${q.quest.title}  ${xpBar(shown / q.quest.target, 8)} ${comma(shown)}/${comma(q.quest.target)}  +${q.quest.reward} XP`, q.done ? { dimColor: true } : {})
+  })
+  const earned = new Set(v.titles)
+  const titles = TITLES.map(t =>
+    earned.has(t.id) ? text(el, `  🏅 ${t.name}${v.title === t.name ? ' (지금)' : ''}`) : text(el, `  🔒 ${t.name} — ${t.rule}`, { dimColor: true }),
+  )
+  return [
+    section(el, '오늘의 의뢰', quests.length ? quests : [text(el, '  오늘 의뢰가 없어요', { dimColor: true })]),
+    el.Box({
+      flexDirection: 'column',
+      children: [text(el, `🔥 ${v.streak}일 연속`), text(el, `💥 콤보 ×${v.combo} (오늘 최고 ×${v.bestCombo})`)],
+    }),
+    section(el, '칭호', titles),
+  ]
+}
+
+function recordTab(el: Els, v: CardView): unknown[] {
+  const t = v.turn
+  const turnRows = t
+    ? [
+        text(el, `  이번 턴  출력 ${comma(t.out)} · 입력 ${comma(t.in)} · 캐시 쓰기 ${comma(t.cw)} · 캐시 읽기 ${comma(t.cr)}`),
+        text(el, `           ${formulaLine(t)}  →  +${comma(t.xp)} XP`, { dimColor: true }),
+      ]
+    : [text(el, '  이번 턴 기록이 아직 없어요', { dimColor: true })]
+  const d = v.today
+  const mem = memoryRate(d)
+  const journal = v.log.length
+    ? v.log.slice(0, 8).map(l => {
+        if (l.text) return text(el, `  ${l.kind === 'title' ? '🏅' : '📜'} ${l.text}`)
+        const st = STAGES.find(x => x.id === l.stage)
+        return text(el, `  ⬆ Lv.${l.level} ${st?.emoji ?? ''} ${st?.name ?? ''}`)
+      })
+    : [text(el, '  아직 기록이 없어요', { dimColor: true })]
+  return [
+    section(el, '전투 기록', [
+      ...turnRows,
+      text(el, `  오늘    출력 ${shortNum(d.out)} · 캐시 읽기 ${shortNum(d.cr)}${mem !== null ? ` · 기억 ${mem}%` : ''}  →  +${comma(v.todayXp)} XP`),
+      ...(v.context !== null ? [text(el, `  🎒 배낭 ${v.context}%${v.context >= 80 ? ' — /compact 로 정리' : ''}`)] : []),
+    ]),
+    section(el, '모험 일지', journal),
+  ]
+}
+
+export function card(el: Els, art: unknown, v: CardView, tab: Tab = 1, onTab: (t: Tab) => void = () => {}, road?: unknown[]): unknown {
+  const tabs = ([1, 2, 3] as const).map(t =>
+    el.Button
+      ? el.Button({ key: `tab${t}`, label: `[${t}] ${['상태', '의뢰', '기록'][t - 1]}`, hotkey: String(t), variant: t === tab ? 'primary' : 'secondary', onPress: () => onTab(t) })
+      : text(el, `[${t}] ${['상태', '의뢰', '기록'][t - 1]}`, t === tab ? { bold: true } : { dimColor: true }),
+  )
+  const body = tab === 1 ? statusTab(el, v, road) : tab === 2 ? questTab(el, v) : recordTab(el, v)
   return el.Box({
     flexDirection: 'column',
     rowGap: 1,
     children: [
       ...(v.isDemo ? [text(el, '(데모)', { bold: true })] : []),
-      ...(art ? [art] : []),
-      el.Box({
-        flexDirection: 'column',
-        children: [
-          text(el, `${p.stage.emoji} ${v.name} · ${p.stage.name} Lv.${p.level}`, { bold: true }),
-          text(el, `${xpBar(p.ratio, 20)} ${percent(p.ratio)}%  다음 레벨까지 ${comma(p.need - p.into)} XP`),
-          text(el, `오늘 +${comma(v.todayXp)} XP · 이번 주 +${comma(v.weekXp)} XP · 오늘 베기 ${comma(v.todaySwings)}번`),
-          text(el, `지금: ${v.line}`, { dimColor: true }),
-        ],
-      }),
-      el.Box({ flexDirection: 'column', children: [text(el, '승급의 길', { bold: true }), ...stageRoad(el, v)] }),
-      el.Box({ flexDirection: 'column', children: [text(el, '모험 일지', { bold: true }), ...journal(el, v)] }),
+      el.Box({ flexDirection: 'row', columnGap: 2, children: tabs }),
+      ...(tab === 1 && art ? [art] : []),
+      ...body,
     ],
+  })
+}
+
+// 데스크톱 승급의 길: 단계마다 작은 그림, 아직 못 간 단계는 실루엣
+export function stageRoad(el: Els, surface: string, current: StageId): unknown[] {
+  if (surface === 'terminal' || !el.Svg) return []
+  const at = STAGES.findIndex(s => s.id === current)
+  return STAGES.map((s, i) => {
+    const f = frameFor(s.id, 'idle')
+    const shown = i <= at ? f : silhouette(f)
+    return el.Svg!({ source: gridToSvg(shown.grid, shown.palette, 2), alt: i <= at ? s.name : `${s.name} (잠김)` })
   })
 }

@@ -12,7 +12,7 @@ import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
 import { gridToRaster } from './lib/to-raster.ts'
 import { gridToSvg } from './lib/to-svg.ts'
 import { demoFrame, poseAt, withFlash, type Activity, type Mood } from './lib/status.ts'
-import { bandLineText, bandModeOf, bandPanel, baseView, card, heroArt, spinnerSuffix, type CardView, type Els } from './lib/views.ts'
+import { bandLineText, bandModeOf, bandPanel, baseView, card, heroArt, spinnerSuffix, stageRoad, type CardView, type Els, type Tab } from './lib/views.ts'
 
 // ---- 모듈 상태 (session.start 의 load 가 매번 새로 채운다) ----
 
@@ -44,6 +44,7 @@ let titleOrder: string[] = [] // 얻은 순서
 let chosenTitle: string | null = null // /blade title 로 고른 칭호
 let lastTurn: CardView['turn'] = null
 let banner: { text: string; until: number } | null = null
+let tab: Tab = 1 // 카드 창 탭
 
 let turnW = 0
 let activity: Activity = { working: false, lastActiveAt: 0, flash: null }
@@ -658,7 +659,11 @@ export const register: Register = (on, options) => {
       clockNow = await $.clock.now()
       const el = $.ui.resolve(e) as unknown as Els
       const { stage, pose, frame } = drawState()
-      return card(el, heroArt(el, e.surface, stage.id, pose, 'pane', frame), snapshot()) as any
+      const onTab = (t: Tab) => {
+        tab = t
+        $.ui.invalidate('ui.render')
+      }
+      return card(el, heroArt(el, e.surface, stage.id, pose, 'pane', frame), snapshot(), tab, onTab, stageRoad(el, e.surface, stage.id)) as any
     }
     if (e.requestId !== PROBE) return next(e)
     const el: any = $.ui.resolve(e)
@@ -671,6 +676,7 @@ export const register: Register = (on, options) => {
   on('command.run', { command: ['blade', 'spellblade'] }, async ($, e) => {
     const [word] = e.args.trim().split(/\s+/)
     if (!word) {
+      tab = 1
       await $.ui.open({ id: PANE, title: '마검사', focus: true, closeOnEscape: true })
       return {}
     }

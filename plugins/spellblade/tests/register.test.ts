@@ -234,8 +234,9 @@ test('/blade 로 카드 창이 열린다', async ($, on) => {
   expect(seen.opened).toContain('spellblade')
   const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'Pane', requestId: 'spellblade', props: PANE({ title: '마검사' }) })
   expect(await m.find({ text: /승급의 길/ })).toBeTruthy()
-  expect(await m.find({ text: /모험 일지/ })).toBeTruthy()
   expect(await m.find({ type: 'Svg' })).toBeTruthy()
+  await m.press({ key: 'tab3' })
+  expect(await m.find({ text: /모험 일지/ })).toBeTruthy()
 })
 
 test('카드 창: 터미널은 32칸 × 16줄', async ($, on) => {
@@ -681,4 +682,68 @@ test('승급하면 배너와 카드 창', async ($, on) => {
   await oneTurn($)
   expect(seen.opened).toContain('spellblade')
   expect(await bandText($)).toMatch(/승급!  수련생 → 검사/)
+})
+
+// ---- 2차 Task 10: 카드 창 탭 ----
+
+async function openCard($: Engine, surface: 'terminal' | 'desktop' = 'desktop') {
+  await $.command.run({ command: 'blade', args: '' })
+  return $.ui.mount({ plugin: 'spellblade', surface, component: 'Pane', requestId: 'spellblade', props: PANE({ title: '마검사' }) })
+}
+
+test('탭 버튼이 셋', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const m = await openCard($)
+  for (const key of ['tab1', 'tab2', 'tab3']) expect(await m.find({ key })).toBeTruthy()
+})
+
+test('2 를 누르면 의뢰 탭', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const m = await openCard($)
+  await m.press({ key: 'tab2' })
+  expect(await m.find({ text: /오늘의 의뢰/ })).toBeTruthy()
+  expect(await m.find({ text: /🔥/ })).toBeTruthy()
+  expect(await m.find({ text: /🔒/ })).toBeTruthy()
+})
+
+test('3 을 누르면 기록 탭과 W 식', async ($, on) => {
+  beneath(on, { now: NOON })
+  on('turn.step', async function* () {
+    return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: { input_tokens: 320, output_tokens: 2_140, cache_read_input_tokens: 410_000, cache_creation_input_tokens: 12_400, model: 'm' } }
+  })
+  await start($)
+  await oneTurn($)
+  const m = await openCard($)
+  await m.press({ key: 'tab3' })
+  expect(await m.find({ text: /W = 2,140 \+ 0\.1 × \(320 \+ 12,400\) = 3,412/ })).toBeTruthy()
+  expect(await m.find({ text: /기억 97%/ })).toBeTruthy()
+})
+
+test('상태 탭: 장비 · 능력치 · 승급의 길 이름', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const m = await openCard($, 'terminal')
+  expect(await m.find({ text: /나무 검/ })).toBeTruthy()
+  expect(await m.find({ text: /💪/ })).toBeTruthy()
+  expect(await m.find({ text: /마검성 \(Lv\.45\)/ })).toBeTruthy()
+  expect(await m.find({ text: /다음 장비: 철검/ })).toBeTruthy()
+})
+
+test('데스크톱 승급의 길은 작은 그림 다섯', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const m = await openCard($)
+  expect((await m.findAll({ type: 'Svg' })).length).toBeGreaterThanOrEqual(6)
+})
+
+test('/blade 로 다시 열면 상태 탭부터', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const m = await openCard($)
+  await m.press({ key: 'tab2' })
+  await m.unmount()
+  const again = await openCard($)
+  expect(await again.find({ text: /승급의 길/ })).toBeTruthy()
 })
