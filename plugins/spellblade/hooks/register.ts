@@ -2,7 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import { DEFAULT_NAME, FAST_TURN_MS, LIMIT_WARN, LOG_MAX, MS, NIGHT_HOURS, STAGES } from './lib/balance.ts'
 import { bonusesFor, objectJosa, subjectJosa, topicJosa } from './lib/bonus.ts'
 import { skillOf } from './lib/skills.ts'
-import { addSum, allowedBonus, dayKey, entryKey, isEntry, isLogEntry, isProfile, parseEntryKey, sumByDay, sumEntries, sumXp, ZERO, type Entry, type LogEntry, type Sum } from './lib/ledger.ts'
+import { addSum, allowedBonus, dayKey, entryKey, isEntry, isLogEntry, isProfile, sumByDay, sumEntries, sumXp, ZERO, type Entry, type LogEntry, type Sum } from './lib/ledger.ts'
 import { limitsOf, liveGauge, resetText, type Gauge } from './lib/limits.ts'
 import { earnedTitles, longestStreak, statsOf, streakOf, TITLES, titleName, type Lifetime } from './lib/progression.ts'
 import { questReward, questStatus } from './lib/quests.ts'
@@ -30,6 +30,8 @@ let log: LogEntry[] = []
 // 2차: 전투 기록 · 한도 · 의뢰 · 칭호
 let combo = 0 // 메인 대화에서 오류 없이 이어진 도구 호출
 let cleanRun = 0 // 반격 없이 이어진 턴
+let runDay = '' // combo · cleanRun 이 쌓이는 날 — 날이 바뀌면 새로 센다
+let pastDays = new Map<string, Sum>() // 오늘이 아닌 날마다의 합계(모든 세션)
 let turnHadError = false
 let turnTokens = { in: 0, out: 0, cw: 0, cr: 0 }
 let limits: { hp: Gauge | null; mp: Gauge | null } = { hp: null, mp: null }
@@ -102,6 +104,37 @@ function mineOn(day: string): Entry {
     mine.set(day, e)
   }
   return e
+}
+
+// 콤보 · 반격 없이 연속은 그날 안에서만 잇는다(오늘 의뢰가 어제 몫으로 채워지지 않게)
+function runOn(day: string): void {
+  if (day === runDay) return
+  runDay = day
+  combo = 0
+  cleanRun = 0
+}
+
+// 지난 날 합계에서: 전체 · 최근 6일 · 의뢰 보상 · 끝낸 의뢰 수 · XP 를 얻은 날
+function applyPast(now: number): void {
+  const week = new Set(Array.from({ length: 6 }, (_, i) => dayKey(now - (i + 1) * 86_400_000, tz)))
+  past = ZERO
+  pastWeek = ZERO
+  pastQuestXp = 0
+  pastQuestsDone = 0
+  pastWeekQuestXp = 0
+  activeDays = new Set()
+  for (const [day, s] of pastDays) {
+    past = addSum(past, s)
+    if (week.has(day)) pastWeek = addSum(pastWeek, s)
+    const dayXp = sumXp(s)
+    if (dayXp >= 1) activeDays.add(day)
+    if (day < questsFrom) continue // 의뢰가 없던 날(2.0 전)은 보상을 소급하지 않는다
+    const status = questStatus(day, s, dayXp)
+    const reward = status.reduce((n, q) => n + (q.done ? q.quest.reward : 0), 0)
+    pastQuestXp += reward
+    pastQuestsDone += status.filter(q => q.done).length
+    if (week.has(day)) pastWeekQuestXp += reward
+  }
 }
 
 function todaySum(): Sum {
@@ -242,15 +275,17 @@ async function loadNow($: EngineInterface): Promise<void> {
   const notified = await $.store.get(`q:${newToday}`)
 
   if (newSid !== sid) {
-    // 새 세션(/clear 등): 앞 세션 몫은 session.end 에서 이미 저장됐다
+    // 새 세션(/clear 등): 앞 세션 몫은 session.end 에서 이미 저장됐다. 콤보 · 연속 · 이 세션 기록도 새로
     mine.clear()
     dirty.clear()
+    combo = 0
+    cleanRun = 0
+    lastTurn = null
+    sessionW = 0
+    sessionTokens = { in: 0, out: 0, cw: 0, cr: 0 }
   }
   sid = newSid
   today = newToday
-  const week = new Set(Array.from({ length: 6 }, (_, i) => dayKey(now - (i + 1) * 86_400_000, tz)))
-  past = sumEntries(rows, { notDay: today })
-  pastWeek = sumEntries(rows.filter(([k]) => week.has(parseEntryKey(k)?.day ?? '')))
   othersToday = sumEntries(rows, { day: today, excludeSession: sid })
   // 지난 날 몫은 저장이 끝났으면 메모리에서 뺀다. 오늘 몫은 메모리 쪽이 더 새것이다
   for (const day of [...mine.keys()]) if (day !== today && !dirty.has(day)) mine.delete(day)
@@ -258,23 +293,9 @@ async function loadNow($: EngineInterface): Promise<void> {
   if (isEntry(own) && !mine.has(today)) mine.set(today, { ...own })
   name = isProfile(profile) ? profile.name : DEFAULT_NAME
   log = Array.isArray(saved) ? saved.filter(isLogEntry).slice(0, LOG_MAX) : []
-  // 지난 날: 의뢰 보상 · 끝낸 의뢰 수 · XP 를 얻은 날
-  pastQuestXp = 0
-  pastQuestsDone = 0
-  pastWeekQuestXp = 0
-  activeDays = new Set()
   questsFrom = isProfile(profile) && typeof profile.questsFrom === 'string' ? profile.questsFrom : newToday
-  for (const [day, s] of sumByDay(rows)) {
-    if (day === today) continue
-    const dayXp = sumXp(s)
-    if (dayXp >= 1) activeDays.add(day)
-    if (day < questsFrom) continue // 의뢰가 없던 날(2.0 전)은 보상을 소급하지 않는다
-    const status = questStatus(day, s, dayXp)
-    const reward = status.reduce((n, q) => n + (q.done ? q.quest.reward : 0), 0)
-    pastQuestXp += reward
-    pastQuestsDone += status.filter(q => q.done).length
-    if (week.has(day)) pastWeekQuestXp += reward
-  }
+  pastDays = new Map([...sumByDay(rows)].filter(([day]) => day !== today))
+  applyPast(now)
   questsNotified = new Set(Array.isArray(notified) ? notified.filter((n): n is number => typeof n === 'number') : [])
   titleOrder = isProfile(profile) && Array.isArray(profile.titles) ? profile.titles.filter(t => TITLES.some(x => x.id === t)) : []
   knownTitles = new Set(titleOrder)
@@ -345,13 +366,20 @@ function refreshToday($: EngineInterface): Promise<void> {
 async function refreshNow($: EngineInterface): Promise<void> {
   const day = today
   const me = sid
+  const yesterday = new Date(Date.parse(`${day}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10)
   const keys = await $.store.keys()
   const rows: [string, unknown][] = []
+  const late: [string, unknown][] = []
   for (const key of keys) {
     if (key.startsWith(`d:${day}:`) && key !== entryKey(day, me)) rows.push([key, await $.store.get(key)])
+    else if (key.startsWith(`d:${yesterday}:`)) late.push([key, await $.store.get(key)])
   }
   if (day !== today || me !== sid) return // 읽는 사이 날짜 · 세션이 바뀌었다
   othersToday = sumEntries(rows)
+  // 어제 몫은 자정 뒤에 늦게 저장될 수 있다(다른 창의 마지막 몫) — 다시 합친다
+  if (late.length) pastDays.set(yesterday, sumEntries(late))
+  else pastDays.delete(yesterday)
+  applyPast(clockNow)
   $.ui.invalidate('ui.render')
 }
 
@@ -672,6 +700,7 @@ export const register: Register = (on, options) => {
       // 턴 기록(턴 수 · 빠른 턴 · 새벽 · 반격 없이 연속)과 승리는 정상 답변으로 끝난 턴만 —
       // Esc 로 끊은 턴 · API 오류 · 거절로 의뢰를 채우지 못하게. 반격은 어떻게 끝났든 연속을 끊는다
       const answered = !e.isAborted && e.reason === 'answer'
+      runOn(dayKey(clockNow, tz))
       if (turnHadError) cleanRun = 0
       else if (answered) cleanRun += 1
       if (answered) {
@@ -699,8 +728,9 @@ export const register: Register = (on, options) => {
     const skill = skillOf(e.tool)
     if (main) {
       // 부르는 순간 베기 — 기술 이름과 콤보
-      combo += 1
       clockNow = await $.clock.now()
+      runOn(dayKey(clockNow, tz))
+      combo += 1
       activity = withFlash(activity, 'slash', clockNow, `${skill.name}!${combo >= 3 ? ` ×${combo} 콤보` : ''}`)
       $.ui.invalidate('ui.render')
     }

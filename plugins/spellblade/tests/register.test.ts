@@ -43,6 +43,8 @@ function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen
   on('ui.open', async (_$, e) => { seen.opened.push(e.id); return { value: { isPlaced: true as const } } })
   on('turn.complete', async () => ({ text: '' }))
   on('session.end', async () => ({}))
+  // /clear · /resume 흉내: 설정 훅은 아래에 없으니 테스트가 맨 아래에서 답한다
+  on('classic.SessionStart', async () => ({}) as any)
   on('session.usage', async () => ({ value: { startedAt: 0, context: { window: 1_000_000, percent: 10 }, rateLimits: opts.limits ?? [] } }))
   on('session.measure', async (_$, e) => ({ changed: e.changed }))
   // 맨 아래 그림: 스피너는 단어 + suffix, 밴드는 다른 Mod 대신 opts.bottomBand
@@ -1018,4 +1020,50 @@ test('반격이 있었던 중단 턴은 「반격 없이 연속」을 끊는다'
   await answered()
   await answered()
   expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ turns: 4, clean: 2 })
+})
+
+test('자정이 지나면 콤보와 「반격 없이 연속」을 새로 센다', async ($, on) => {
+  const NIGHT = local(2026, 9, 16, 23, 59)
+  const { clock, seen } = beneath(on, { now: NIGHT })
+  answerTools(on)
+  await start($)
+  toolMode = 'ok'
+  const answered = async () => {
+    await $.turn.start({ text: 'hi', turnId: 't' })
+    await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  }
+  await answered()
+  await answered()
+  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  await clock.advance(120_000) // 자정을 넘긴다
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  await answered()
+  expect(seen.store.get(`d:${dayKey(NIGHT + 120_000, TZ)}:me`)).toMatchObject({ combo: 1, clean: 1 })
+})
+
+test('/clear 로 새 세션이 되면 콤보 · 연속 · 이 세션 기록을 새로 센다', async ($, on) => {
+  const opts: BeneathOpts = { now: NOON }
+  const { seen } = beneath(on, opts)
+  answerTools(on)
+  answerStep(on, 2_000)
+  await start($)
+  toolMode = 'ok'
+  await oneTurn($)
+  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  opts.sid = 'next'
+  await $.classic.SessionStart({ source: 'clear' })
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  expect(seen.store.get(`d:${TODAY}:next`)).toMatchObject({ combo: 1, clean: 1 })
+  const m = await openCard($)
+  await m.press({ key: 'tab3' })
+  expect(await m.find({ text: /이 세션  아직 기록이 없어요/ })).toBeTruthy()
+})
+
+test('어제 몫이 늦게 저장돼도 60초 안에 합계에 들어간다', async ($, on) => {
+  const { clock, seen } = beneath(on, { now: NOON })
+  await start($)
+  seen.store.set(`d:${YESTERDAY}:late`, entry(960_000)) // 다른 창이 자정 전 몫을 늦게 저장했다
+  await clock.advance(60_000)
+  expect(await bandText($)).toMatch(new RegExp(`Lv\\.${levelOf(960)}(?!\\d)`))
 })
