@@ -4,7 +4,7 @@ import type { LogEntry } from './ledger.ts'
 import type { Progress } from './progress.ts'
 
 export type { LogEntry }
-import { scaleGrid } from './sprites.ts'
+import { cropTop } from './sprites.ts'
 import type { Pose } from './status.ts'
 import { gridToRaster } from './to-raster.ts'
 import { gridToSvg } from './to-svg.ts'
@@ -58,7 +58,7 @@ export function bandLineText(v: CardView): string {
 type Make = (props: Record<string, unknown>) => unknown
 export type Els = { Box: Make; Text: Make; Svg?: Make; Raster?: Make }
 
-const SVG_PIXEL = { band: 4, pane: 8 } as const
+const SVG_PIXEL = { band: 3, pane: 6 } as const
 
 // 터미널은 Raster(▀ 반칸), 그 밖은 Svg. 터미널의 resolve 도 Svg 를 내주지만 그려지지 않으므로 표면으로 고른다
 export function heroArt(el: Els, surface: string, stage: StageId, pose: Pose, size: 'band' | 'pane', bodyColumns = 100): unknown {
@@ -66,8 +66,9 @@ export function heroArt(el: Els, surface: string, stage: StageId, pose: Pose, si
   const alt = `${STAGES.find(s => s.id === stage)?.name ?? ''} 마검사`
   if (surface === 'terminal') {
     if (!el.Raster) return null
-    const k = size === 'pane' && bodyColumns >= 44 ? 2 : 1
-    return el.Raster(gridToRaster(scaleGrid(f.grid, k), f.palette, `hero-${size}`))
+    // 밴드는 상반신(위 16도트 = 8줄), 카드는 전신(32칸 × 16줄)
+    const grid = size === 'band' ? cropTop(f.grid, 16) : f.grid
+    return el.Raster(gridToRaster(grid, f.palette, `hero-${size}`))
   }
   if (!el.Svg) return null
   return el.Svg({ source: gridToSvg(f.grid, f.palette, SVG_PIXEL[size]), alt })

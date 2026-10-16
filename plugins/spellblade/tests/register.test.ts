@@ -236,12 +236,22 @@ test('/blade 로 카드 창이 열린다', async ($, on) => {
   expect(await m.find({ type: 'Svg' })).toBeTruthy()
 })
 
-test('카드 창: 터미널은 2배 도트', async ($, on) => {
+test('카드 창: 터미널은 32칸 × 16줄', async ($, on) => {
   beneath(on, { now: NOON })
   await start($)
   const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'Pane', requestId: 'spellblade', props: PANE() })
-  const r = await m.find({ type: 'Raster' })
-  expect(JSON.stringify(r)).toMatch(/"columns":40/)
+  const r = JSON.stringify(await m.find({ type: 'Raster' }))
+  expect(r).toMatch(/"columns":32/)
+  expect(r).toMatch(/"rows":16/)
+})
+
+test('터미널 밴드 그림은 상반신 32칸 × 8줄', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const r = JSON.stringify(await m.find({ type: 'Raster' }))
+  expect(r).toMatch(/"columns":32/)
+  expect(r).toMatch(/"rows":8/)
 })
 
 test('일하는 동안 영창 프레임이 바뀐다', async ($, on) => {

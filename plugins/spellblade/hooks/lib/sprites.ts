@@ -1,7 +1,7 @@
 // 도트 한 장 = 글자 격자. '.' 은 투명, 나머지 글자는 팔레트 색.
 
-export const WIDTH = 20
-export const HEIGHT = 16
+export const WIDTH = 32
+export const HEIGHT = 32
 export const CLEAR = '.'
 
 export type Grid = readonly string[]
@@ -35,4 +35,18 @@ export function scaleGrid(grid: Grid, k: 1 | 2): Grid {
     const wide = r.split('').map(c => c + c).join('')
     return [wide, wide]
   })
+}
+
+// 위 rows 줄만 (터미널 밴드는 상반신만 보여 준다)
+export function cropTop(grid: Grid, rows: number): Grid {
+  return grid.slice(0, rows)
+}
+
+// 통째로 옮기기. 밖으로 나간 칸은 버리고 빈 곳은 투명
+export function shiftGrid(grid: Grid, dx: number, dy: number): Grid {
+  const h = grid.length
+  const w = grid[0]?.length ?? 0
+  return Array.from({ length: h }, (_, y) =>
+    Array.from({ length: w }, (_, x) => grid[y - dy]?.[x - dx] ?? CLEAR).join(''),
+  )
 }
