@@ -28,7 +28,6 @@ function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen
   on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
   // $ 메서드(op 이벤트)의 답은 { value } 로 준다
   on('session.id', async () => ({ value: opts.sid ?? 'me' }))
-  on('ui.invalidate', async () => ({ value: undefined }))
   on('command.register', async (_$, e) => { seen.commands.push(e.name); return { value: { command: e.name } } })
   on('ui.toast', async (_$, e) => { seen.toasts.push({ text: e.text, timeoutMs: e.timeoutMs }); return { value: undefined } })
   on('ui.open', async (_$, e) => { seen.opened.push(e.id); return { value: { isPlaced: true as const } } })
@@ -133,7 +132,7 @@ test('다른 세션 몫과 어제 몫이 합계에 들어간다', async ($, on) 
   beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(960_000), [`d:${TODAY}:y`]: entry(500_000) } })
   await start($)
   const text = await bandText($)
-  expect(text).toMatch(new RegExp(`Lv\\.${levelOf(1460)} `))
+  expect(text).toMatch(new RegExp(`Lv\\.${levelOf(1460)}(?!\\d)`))
   expect(text).toMatch(/오늘 \+500 XP/)
 })
 
@@ -171,7 +170,7 @@ test('자정이 지나면 오늘 XP 가 새로 시작한다', async ($, on) => {
   await clock.advance(120_000)
   const text = await bandText($)
   expect(text).toMatch(/오늘 \+0 XP/)
-  expect(text).toMatch(new RegExp(`Lv\\.${levelOf(994)} `))
+  expect(text).toMatch(new RegExp(`Lv\\.${levelOf(994)}(?!\\d)`))
 })
 
 test('설문 중에는 밴드를 비켜 준다', async ($, on) => {
@@ -182,3 +181,78 @@ test('설문 중에는 밴드를 비켜 준다', async ($, on) => {
   expect(text).not.toMatch(/Lv\./)
 })
 
+
+// ---- M2: 밴드 그림판 · 카드 창 · 움직임 ----
+
+test('터미널 밴드에는 Raster, 데스크톱 밴드에는 Svg', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const t = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  expect(await t.find({ type: 'Raster' })).toBeTruthy()
+  const d = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
+  expect(await d.find({ type: 'Svg' })).toBeTruthy()
+  expect(await d.find({ type: 'Raster' })).toBeFalsy()
+})
+
+test('좁으면 한 줄로 바뀐다', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND({ bodyColumns: 50 }) })
+  expect(await m.find({ type: 'Raster' })).toBeFalsy()
+  expect(await m.find({ text: /Lv\.\d+ .* 오늘 \+/ })).toBeTruthy()
+})
+
+test('밴드가 낮아도 한 줄로 바뀐다', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND({ maxRows: 5, scroll: { offset: 0, bodyRows: 5 } }) })
+  expect(await m.find({ type: 'Raster' })).toBeFalsy()
+})
+
+test('다른 Mod 그림을 가리지 않는다', async ($, on) => {
+  beneath(on, { now: NOON, bottomBand: '다른 모드' })
+  await start($)
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  expect(await m.find({ text: '다른 모드' })).toBeTruthy()
+  expect(await m.find({ text: /수련생/ })).toBeTruthy()
+})
+
+test('/blade 로 카드 창이 열린다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON })
+  await start($)
+  await $.command.run({ command: 'blade', args: '' })
+  expect(seen.opened).toContain('spellblade')
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'Pane', requestId: 'spellblade', props: PANE({ title: '마검사' }) })
+  expect(await m.find({ text: /승급의 길/ })).toBeTruthy()
+  expect(await m.find({ text: /모험 일지/ })).toBeTruthy()
+  expect(await m.find({ type: 'Svg' })).toBeTruthy()
+})
+
+test('카드 창: 터미널은 2배 도트', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'Pane', requestId: 'spellblade', props: PANE() })
+  const r = await m.find({ type: 'Raster' })
+  expect(JSON.stringify(r)).toMatch(/"columns":40/)
+})
+
+test('일하는 동안 영창 프레임이 바뀐다', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON })
+  await start($)
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const first = JSON.stringify(await m.find({ type: 'Raster' }))
+  await clock.advance(400)
+  const second = JSON.stringify(await m.find({ type: 'Raster' }))
+  expect(second).not.toBe(first)
+  expect(await m.find({ text: /마법을 두르는 중/ })).toBeTruthy()
+})
+
+test('턴이 끝나면 승리 문구', async ($, on) => {
+  beneath(on, { now: NOON })
+  answerStep(on, 34_000)
+  await start($)
+  await oneTurn($)
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  expect(await m.find({ text: /✓ 승리 \+34 XP/ })).toBeTruthy()
+})

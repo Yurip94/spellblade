@@ -5,7 +5,8 @@ import { progressOf, weightOf } from './lib/progress.ts'
 import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
 import { gridToRaster } from './lib/to-raster.ts'
 import { gridToSvg } from './lib/to-svg.ts'
-import { bandLineText, bandModeOf, spinnerSuffix, type CardView, type LogEntry } from './lib/views.ts'
+import { poseAt, withFlash, type Activity } from './lib/status.ts'
+import { bandLineText, bandModeOf, bandPanel, card, heroArt, spinnerSuffix, type CardView, type Els, type LogEntry } from './lib/views.ts'
 
 // ---- 모듈 상태 (session.start 의 load 가 매번 새로 채운다) ----
 
@@ -21,9 +22,13 @@ let name = DEFAULT_NAME
 let log: LogEntry[] = []
 
 let turnW = 0
-let working = false
+let activity: Activity = { working: false, lastActiveAt: 0, flash: null }
+let clockNow = 0 // 마지막으로 읽은 시각 (그리기용)
+let lastDrawnKey = ''
 let syncing = false
 let sinceSync = 0
+
+const PANE = 'spellblade'
 
 const PROBE = 'spellblade-probe'
 const PROBE_PALETTE = { r: 0xd23c3c, b: 0x3c64d2, y: 0xf0c83c }
@@ -66,10 +71,17 @@ function snapshot(): CardView {
     todayXp: sumXp(t),
     weekXp: sumXp(addSum(pastWeek, t)),
     todaySwings: t.swings,
-    line: working ? '마법을 두르는 중…' : '쉬는 중',
+    line: poseAt(activity, clockNow).line,
     log,
     isDemo: false,
   }
+}
+
+// 지금 그릴 단계 · 자세. 바뀔 때만 다시 그리려고 열쇠도 같이
+function drawState(): { stage: CardView['progress']['stage']; pose: ReturnType<typeof poseAt>['pose']; key: string } {
+  const v = snapshot()
+  const { pose, line } = poseAt(activity, clockNow)
+  return { stage: v.progress.stage, pose, key: `${v.progress.stage.id}|${pose}|${line}|${v.progress.xp}` }
 }
 
 async function readAll($: EngineInterface): Promise<[string, unknown][]> {
@@ -93,6 +105,8 @@ async function load($: EngineInterface): Promise<void> {
   const own = rows.find(([k]) => k === entryKey(today, sid))?.[1]
   if (isEntry(own)) mine.set(today, { ...own })
   sinceSync = 0
+  clockNow = now
+  activity = { ...activity, lastActiveAt: now }
   $.ui.invalidate('ui.render')
 }
 
@@ -118,9 +132,15 @@ async function refreshToday($: EngineInterface): Promise<void> {
 
 // 400ms 마다: 60초마다 저장 · 남의 몫 다시 읽기, 날짜가 바뀌면 전부 다시
 async function tick($: EngineInterface): Promise<void> {
+  const now = await $.clock.now()
+  clockNow = now
+  const key = drawState().key
+  if (key !== lastDrawnKey) {
+    lastDrawnKey = key
+    $.ui.invalidate('ui.render')
+  }
   if (syncing) return
   sinceSync += MS.tick
-  const now = await $.clock.now()
   const dayChanged = dayKey(now, tz) !== today
   if (!dayChanged && sinceSync < MS.sync) return
   syncing = true
@@ -135,9 +155,12 @@ async function tick($: EngineInterface): Promise<void> {
 }
 
 async function addUsage($: EngineInterface, w: number): Promise<void> {
-  const day = dayKey(await $.clock.now(), tz)
+  const now = await $.clock.now()
+  const day = dayKey(now, tz)
   mineOn(day).w += w
   dirty.add(day)
+  clockNow = now
+  activity = { ...activity, lastActiveAt: now }
 }
 
 // ---- 명령 ----
@@ -171,7 +194,8 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const out = await next(e)
     turnW = 0
-    working = false
+    activity = { working: false, lastActiveAt: 0, flash: null }
+    lastDrawnKey = ''
     await load($)
     startTimer($)
     await registerCommand($)
@@ -191,7 +215,9 @@ export const register: Register = (on, options) => {
 
   on('turn.start', async ($, e, next) => {
     turnW = 0
-    working = true
+    clockNow = await $.clock.now()
+    activity = { ...activity, working: true, lastActiveAt: clockNow }
+    $.ui.invalidate('ui.render')
     return next(e)
   })
 
@@ -207,7 +233,11 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.complete', async ($, e, next) => {
-    if (!e.agentId) working = false
+    if (!e.agentId) {
+      clockNow = await $.clock.now()
+      activity = { ...activity, working: false, lastActiveAt: clockNow }
+      if (!e.isAborted) activity = withFlash(activity, 'victory', clockNow, String(Math.floor(turnW / 1000)))
+    }
     await flush($)
     $.ui.invalidate('ui.render')
     return next(e)
@@ -221,12 +251,21 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || band === 'off') return next(e)
     const below = await next(e)
-    const { Box, Text } = $.ui.resolve(e)
-    const mine = Text({ wrap: 'truncate-end', children: [bandLineText(snapshot())] })
-    return Box({ flexDirection: 'column', children: [mine, below] })
+    const el = $.ui.resolve(e) as unknown as Els
+    const v = snapshot()
+    const { stage, pose } = drawState()
+    const roomy = band === 'panel' && e.props.bodyColumns >= 64 && e.props.maxRows >= 8
+    const art = roomy ? heroArt(el, e.surface, stage.id, pose, 'band') : null
+    const mine = art ? bandPanel(el, art, v) : el.Text({ wrap: 'truncate-end', children: [bandLineText(v)] })
+    return el.Box({ flexDirection: 'column', children: [mine, below] }) as any
   })
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
+    if (e.requestId === PANE) {
+      const el = $.ui.resolve(e) as unknown as Els
+      const { stage, pose } = drawState()
+      return card(el, heroArt(el, e.surface, stage.id, pose, 'pane', e.props.bodyColumns), snapshot()) as any
+    }
     if (e.requestId !== PROBE) return next(e)
     const el: any = $.ui.resolve(e)
     // 터미널의 resolve 도 Svg 를 내주지만 그려지지 않는다 — 표면으로 고른다
@@ -237,6 +276,10 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: ['blade', 'spellblade'] }, async ($, e) => {
     const [word] = e.args.trim().split(/\s+/)
+    if (!word) {
+      await $.ui.open({ id: PANE, title: '마검사', focus: true, closeOnEscape: true })
+      return {}
+    }
     if (word === 'probe') {
       await $.ui.open({ id: PROBE, title: '마검사 시험', focus: true, closeOnEscape: true })
       return { text: await probeText($) }
