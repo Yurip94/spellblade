@@ -99,6 +99,6 @@ test('밴드 글줄 수는 상태와 상관없이 6줄', async () => {
   const plain = view({ xp: 12000 })
   const gauges = view({ xp: 12000, hp: 41, mp: 62 })
   const banner = { ...view({ xp: 12000, hp: 41, mp: 62 }), banner: '✨ LEVEL UP!  Lv.14 → Lv.15 ✨' }
-  const memory = { ...view({ xp: 12000 }), memory: 96, context: 62 }
+  const memory = { ...view({ xp: 12000 }), context: 62 }
   expect([plain, gauges, banner, memory].map(lineCount)).toEqual([6, 6, 6, 6])
 })

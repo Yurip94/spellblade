@@ -85,7 +85,7 @@ test('기술 · 콤보 문구', async () => {
 })
 
 test('승리 요약', async () => {
-  expect(poseAt(withFlash(A(), 'victory', 0, '+3 XP · 출력 2.1k · 기억 96%'), 100).line).toBe('✓ 승리 +3 XP · 출력 2.1k · 기억 96%')
+  expect(poseAt(withFlash(A(), 'victory', 0, '+3 XP · 출력 2.1k'), 100).line).toBe('✓ 승리 +3 XP · 출력 2.1k')
 })
 
 test('마나 0 이면 쉬는 자세', async () => {

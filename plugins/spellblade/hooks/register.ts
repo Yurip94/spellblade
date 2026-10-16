@@ -6,7 +6,7 @@ import { addSum, allowedBonus, dayKey, entryKey, isEntry, isLogEntry, isProfile,
 import { limitsOf, liveGauge, resetText, type Gauge } from './lib/limits.ts'
 import { earnedTitles, longestStreak, statsOf, streakOf, TITLES, titleName, type Lifetime } from './lib/progression.ts'
 import { questReward, questStatus } from './lib/quests.ts'
-import { memoryRate, shortNum } from './lib/tokens.ts'
+import { shortNum } from './lib/tokens.ts'
 import { cleanUsage, equipmentAt, levelOf, progressOf, stageOf, weightOf, xpForLevel } from './lib/progress.ts'
 import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
 import { gridToRaster } from './lib/to-raster.ts'
@@ -225,7 +225,6 @@ function snapshot(): CardView {
     resets: { hp: m.hpReset ?? '', mp: m.mpReset ?? '' },
     quests: questStatus(today, t, sumXp(t)),
     streak: life.streak,
-    memory: memoryRate(t),
     context: contextPercent,
     combo,
     bestCombo: t.combo,
@@ -531,12 +530,10 @@ function applyBonus(command: string, day: string): string {
   return message
 }
 
-// "+3 XP · 출력 2.1k · 기억 96%"
+// "+3 XP · 출력 2.1k"
 function victorySummary(): string {
   const parts = [`+${Math.floor(turnW / 1000)} XP`]
   if (turnTokens.out > 0) parts.push(`출력 ${shortNum(turnTokens.out)}`)
-  const mem = memoryRate(turnTokens)
-  if (mem !== null) parts.push(`기억 ${mem}%`)
   return parts.join(' · ')
 }
 

@@ -11,8 +11,8 @@ export function shortNum(n: number): string {
   return String(Math.round(n))
 }
 
-// 기억력 = 캐시 적중률 = 캐시 읽기 ÷ (입력 + 캐시 쓰기 + 캐시 읽기)
-export function memoryRate(s: { in: number; cw: number; cr: number }): number | null {
+// 캐시 재사용 = 이미 읽은 내용을 다시 읽지 않고 넘어간 비율 = 캐시 읽기 ÷ (입력 + 캐시 쓰기 + 캐시 읽기)
+export function cacheReuse(s: { in: number; cw: number; cr: number }): number | null {
   const all = s.in + s.cw + s.cr
   return all > 0 ? Math.round((s.cr / all) * 100) : null
 }

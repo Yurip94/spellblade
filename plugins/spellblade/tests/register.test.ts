@@ -583,7 +583,9 @@ test('토큰 칸과 턴 기록이 저장된다', async ($, on) => {
   await start($)
   await oneTurn($)
   expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ in: 320, out: 2_140, cw: 12_400, cr: 410_000, turns: 1, fast: 1, clean: 1 })
-  expect(await bandText($)).toMatch(/✓ 승리 \+3 XP · 출력 2\.1k · 기억 97%/)
+  const t = await bandText($)
+  expect(t).toMatch(/✓ 승리 \+3 XP · 출력 2\.1k/)
+  expect(t).not.toMatch(/기억|캐시/)
 })
 
 // 베기 의뢰(쉬움)가 나오는 날을 찾는다
@@ -649,7 +651,8 @@ test('measure 뒤 밴드에 체력(주간) · 마나(5시간)', async ($, on) =>
   const t = await bandText($)
   expect(t).toMatch(/❤️ [▓░]+ 41%/)
   expect(t).toMatch(/🔷 [▓░]+ 62%/)
-  expect(t).toMatch(/🎒 62%/)
+  expect(t).toMatch(/🎒 배낭 용량 62%/)
+  expect(t).not.toMatch(/기억|캐시/)
 })
 
 test('한도가 없으면 체력 · 마나 줄을 숨긴다', async ($, on) => {
@@ -722,7 +725,8 @@ test('3 을 누르면 기록 탭과 W 식', async ($, on) => {
   const m = await openCard($)
   await m.press({ key: 'tab3' })
   expect(await m.find({ text: /W = 2,140 \+ 0\.1 × \(320 \+ 12,400\) = 3,412/ })).toBeTruthy()
-  expect(await m.find({ text: /기억 97%/ })).toBeTruthy()
+  expect(await m.find({ text: /캐시 재사용 97%/ })).toBeTruthy()
+  expect(await m.find({ text: /🎒 배낭 용량 10%/ })).toBeTruthy()
 })
 
 test('상태 탭: 장비 · 능력치 · 승급의 길 이름', async ($, on) => {

@@ -9,7 +9,7 @@ import { cropTop } from './sprites.ts'
 import type { Pose } from './status.ts'
 import { gridToRaster } from './to-raster.ts'
 import { framesToSvg, gridToSvg } from './to-svg.ts'
-import { comma, formulaLine, memoryRate, shortNum } from './tokens.ts'
+import { cacheReuse, comma, formulaLine, shortNum } from './tokens.ts'
 
 export type { LogEntry }
 export { comma }
@@ -29,8 +29,7 @@ export type CardView = {
   resets: { hp: string; mp: string }
   quests: readonly { quest: Quest; value: number; done: boolean }[]
   streak: number
-  memory: number | null // 오늘 캐시 적중률
-  context: number | null // 배낭(컨텍스트) %
+  context: number | null // 배낭 용량(컨텍스트 창이 찬 %)
   combo: number
   bestCombo: number
   banner: string | null
@@ -46,7 +45,7 @@ export type CardView = {
 export function baseView(p: Progress): CardView {
   return {
     name: '렌', title: null, progress: p, todayXp: 0, weekXp: 0, todaySwings: 0, line: '쉬는 중', log: [], isDemo: false,
-    limits: { hp: null, mp: null }, resets: { hp: '', mp: '' }, quests: [], streak: 0, memory: null, context: null,
+    limits: { hp: null, mp: null }, resets: { hp: '', mp: '' }, quests: [], streak: 0, context: null,
     combo: 0, bestCombo: 0, banner: null, turn: null, session: null, today: ZERO, equipment: equipmentAt(p.level), stats: { str: 1, int: 1, agi: 1, luk: 1 }, titles: [],
   }
 }
@@ -149,10 +148,9 @@ function gaugesLine(v: CardView): string | null {
   return parts.length ? parts.join('   ') : null
 }
 
-// 기억(캐시 적중률) · 배낭(컨텍스트). 80% 넘으면 정리 안내
-function memoryLine(v: CardView): string | null {
-  const parts = [v.memory !== null ? `기억 ${v.memory}%` : '', v.context !== null ? `🎒 ${v.context}%${v.context >= 80 ? ' — /compact 로 정리' : ''}` : ''].filter(Boolean)
-  return parts.length ? parts.join(' · ') : null
+// 배낭 용량(컨텍스트 창이 찬 %). 80% 넘으면 정리 안내
+function backpackLine(v: CardView): string | null {
+  return v.context !== null ? `🎒 배낭 용량 ${v.context}%${v.context >= 80 ? ' — /compact 로 정리' : ''}` : null
 }
 
 // 밴드 오른쪽 글은 언제나 6줄 — 줄이 생겼다 사라지며 밴드 높이가 들썩이지 않게 빈 줄로 자리를 지킨다
@@ -163,7 +161,7 @@ export function bandPanel(el: Els, art: unknown, v: CardView): unknown {
   const done = v.quests.filter(q => q.done).length
   const blank = () => text(el, ' ')
   const gauges = gaugesLine(v)
-  const memory = memoryLine(v)
+  const backpack = backpackLine(v)
   const lines: unknown[] = [
     text(el, `${v.title ? `「${v.title}」 ` : ''}${v.name} · ${p.stage.name} ${levelLabel(p)}`, { bold: true }),
     text(el, xpLine(p, 13)),
@@ -171,7 +169,7 @@ export function bandPanel(el: Els, art: unknown, v: CardView): unknown {
     // 배너는 상태 줄 자리에 — 줄 수를 늘리지 않는다
     v.banner ? text(el, v.banner, { bold: true, color: 'yellow' }) : text(el, `${p.stage.emoji} ${v.line}`),
     text(el, `오늘 +${comma(v.todayXp)} XP${v.quests.length ? ` · 의뢰 ${done}/${v.quests.length}` : ''}${v.streak ? ` · 🔥 ${v.streak}일` : ''}`),
-    memory ? text(el, memory, { dimColor: true }) : blank(),
+    backpack ? text(el, backpack, { dimColor: true }) : blank(),
   ]
   return el.Box({ flexDirection: 'row', columnGap: 2, children: [art, el.Box({ flexDirection: 'column', justifyContent: 'center', children: lines })] })
 }
@@ -259,7 +257,8 @@ function recordTab(el: Els, v: CardView): unknown[] {
     ? text(el, `  이 세션  출력 ${shortNum(se.out)} · 입력 ${shortNum(se.in)} · 캐시 쓰기 ${shortNum(se.cw)} · 캐시 읽기 ${shortNum(se.cr)}  →  +${comma(se.xp)} XP`)
     : text(el, '  이 세션  아직 기록이 없어요', { dimColor: true })
   const d = v.today
-  const mem = memoryRate(d)
+  const reuse = cacheReuse(d)
+  const backpack = backpackLine(v)
   const journal = v.log.length
     ? v.log.slice(0, 8).map(l => {
         if (l.text) return text(el, `  ${l.kind === 'title' ? '🏅' : '📜'} ${l.text}`)
@@ -271,8 +270,8 @@ function recordTab(el: Els, v: CardView): unknown[] {
     section(el, '전투 기록', [
       ...turnRows,
       sessionRow,
-      text(el, `  오늘    출력 ${shortNum(d.out)} · 캐시 읽기 ${shortNum(d.cr)}${mem !== null ? ` · 기억 ${mem}%` : ''}  →  +${comma(v.todayXp)} XP`),
-      ...(v.context !== null ? [text(el, `  🎒 배낭 ${v.context}%${v.context >= 80 ? ' — /compact 로 정리' : ''}`)] : []),
+      text(el, `  오늘    출력 ${shortNum(d.out)} · 캐시 읽기 ${shortNum(d.cr)}${reuse !== null ? ` · 캐시 재사용 ${reuse}%` : ''}  →  +${comma(v.todayXp)} XP`),
+      ...(backpack ? [text(el, `  ${backpack}`)] : []),
     ]),
     section(el, '모험 일지', journal),
   ]

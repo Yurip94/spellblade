@@ -1,14 +1,14 @@
 import { expect, test } from 'claude-code/testing'
-import { formulaLine, memoryRate, shortNum } from '../hooks/lib/tokens.ts'
+import { cacheReuse, formulaLine, shortNum } from '../hooks/lib/tokens.ts'
 
 test('숫자 줄이기', async () => {
   expect([shortNum(999), shortNum(1_234), shortNum(3_400_000), shortNum(12_000)]).toEqual(['999', '1.2k', '3.4M', '12k'])
 })
 
-test('기억력', async () => {
-  expect(memoryRate({ in: 2, cw: 50, cr: 52_012 })).toBe(100)
-  expect(memoryRate({ in: 500, cw: 500, cr: 1_000 })).toBe(50)
-  expect(memoryRate({ in: 0, cw: 0, cr: 0 })).toBe(null)
+test('캐시 재사용', async () => {
+  expect(cacheReuse({ in: 2, cw: 50, cr: 52_012 })).toBe(100)
+  expect(cacheReuse({ in: 500, cw: 500, cr: 1_000 })).toBe(50)
+  expect(cacheReuse({ in: 0, cw: 0, cr: 0 })).toBe(null)
 })
 
 test('W 식', async () => {
