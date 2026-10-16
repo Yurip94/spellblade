@@ -12,6 +12,19 @@ export const STAGES: readonly StageDef[] = [
   { id: 'saint', name: '마검성', minLevel: 45, emoji: '🌟' },
 ]
 
+// 단계마다 바뀌는 장비 (2차 설계 3장)
+export const EQUIPMENT: Record<StageId, { weapon: string; armor: string; trinket: string }> = {
+  trainee: { weapon: '나무 검', armor: '천 옷 · 머리띠', trinket: '—' },
+  swordsman: { weapon: '철검', armor: '가죽 갑옷', trinket: '둥근 방패' },
+  spellblade: { weapon: '룬 검', armor: '경갑', trinket: '짧은 망토' },
+  knight: { weapon: '청뢰검', armor: '문양 판금 · 투구', trinket: '긴 망토 · 마법진 방패' },
+  saint: { weapon: '성검', armor: '빛의 갑옷', trinket: '등 뒤 마법진 · 떠 있는 검' },
+}
+
+// 만렙 · 명성: 만렙 뒤 XP 1,000 = 명성 ★1
+export const MAX_LEVEL = 60
+export const FAME_PER_XP = 1000
+
 // 가중 토큰 W 1,000 = 1 XP
 export const XP_PER_W = 1000
 // 레벨 L 이 되는 누적 XP = LEVEL_BASE × (L − 1)²

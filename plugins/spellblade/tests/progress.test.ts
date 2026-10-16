@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { levelOf, progressOf, stageOf, weightOf, xpForLevel, xpOf } from '../hooks/lib/progress.ts'
+import { equipmentAt, levelOf, progressOf, stageOf, weightOf, xpForLevel, xpOf } from '../hooks/lib/progress.ts'
 import { STAGES } from '../hooks/lib/balance.ts'
 
 // 키트에 toBeCloseTo 가 없다
@@ -55,4 +55,25 @@ test('다음 레벨까지', async () => {
   expect(progressOf(1000)).toMatchObject({ xp: 1000, level: 5, into: 40, need: 540 })
   expect(progressOf(1000).stage.name).toBe('검사')
   expect(near(progressOf(1000).ratio, 40 / 540)).toBe(true)
+})
+
+// ---- 2차: 만렙 · 명성 · 장비 ----
+
+test('만렙은 60', async () => {
+  expect(levelOf(10_000_000)).toBe(60)
+  expect(levelOf(208_859)).toBe(59)
+  expect(levelOf(208_860)).toBe(60)
+})
+
+test('만렙 뒤에는 명성', async () => {
+  expect(progressOf(208_860 + 12_345)).toMatchObject({ level: 60, isMax: true, fame: 12, into: 0, need: 0, ratio: 1 })
+  expect(progressOf(1000)).toMatchObject({ isMax: false, fame: 0 })
+})
+
+test('장비 · 강화', async () => {
+  expect(equipmentAt(9)).toMatchObject({ weapon: '철검', armor: '가죽 갑옷', trinket: '둥근 방패', plus: 4, next: { weapon: '룬 검' } })
+  expect(equipmentAt(9).next?.stage.minLevel).toBe(15)
+  expect(equipmentAt(1)).toMatchObject({ weapon: '나무 검', plus: 0 })
+  expect(equipmentAt(45).next).toBe(null)
+  expect(equipmentAt(60)).toMatchObject({ weapon: '성검', plus: 15 })
 })
