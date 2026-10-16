@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { progressOf } from '../hooks/lib/progress.ts'
-import { bandLineText, bandModeOf, baseView, comma, levelLabel, motionOf, spinnerSuffix, xpBar, type CardView } from '../hooks/lib/views.ts'
+import { bandLineText, bandModeOf, bandPanel, baseView, comma, heroArt, levelLabel, motionOf, spinnerSuffix, xpBar, type CardView } from '../hooks/lib/views.ts'
 
 test('천 단위 쉼표', async () => {
   expect(comma(1240)).toBe('1,240')
@@ -48,9 +48,57 @@ test('band 설정 읽기: 모르는 값은 panel', async () => {
   expect(bandModeOf('weird')).toBe('panel')
 })
 
-test('motion 설정 읽기: 모르는 값은 smooth', async () => {
+test('motion 설정 읽기: 모르는 값은 frames', async () => {
   expect(motionOf('frames')).toBe('frames')
   expect(motionOf('smooth')).toBe('smooth')
-  expect(motionOf(undefined)).toBe('smooth')
-  expect(motionOf('x')).toBe('smooth')
+  expect(motionOf(undefined)).toBe('frames')
+  expect(motionOf('x')).toBe('frames')
+})
+
+// 요소 생성자 흉내: 받은 props 를 그대로 돌려준다
+const fakeEls = {
+  Box: (p: Record<string, unknown>) => ({ type: 'Box', ...p }),
+  Text: (p: Record<string, unknown>) => ({ type: 'Text', ...p }),
+  Svg: (p: Record<string, unknown>) => ({ type: 'Svg', ...p }),
+  Raster: (p: Record<string, unknown>) => ({ type: 'Raster', ...p }),
+}
+
+test('데스크톱 그림은 자세와 상관없이 같은 크기 · 같은 방식', async () => {
+  for (const smooth of [false, true]) {
+    const shapes = (['idle', 'blink', 'cast1', 'cast2', 'slash', 'victory', 'hit', 'levelup', 'sleep'] as const).map(p => {
+      const a = heroArt(fakeEls, 'desktop', 'spellblade', p, 'band', 0, smooth) as Record<string, unknown>
+      return JSON.stringify([a.width, a.height, a.isInteractive ?? false])
+    })
+    expect(new Set(shapes).size).toBe(1)
+    const first = JSON.parse(shapes[0])
+    expect(first[0]).toBeGreaterThan(0)
+    expect(first[0]).toBe(first[1])
+  }
+})
+
+test('부드러운 움직임에서 짝 자세는 같은 SVG', async () => {
+  const a = heroArt(fakeEls, 'desktop', 'knight', 'cast1', 'band', 0, true) as Record<string, string>
+  const b = heroArt(fakeEls, 'desktop', 'knight', 'cast2', 'band', 0, true) as Record<string, string>
+  expect(a.source).toBe(b.source)
+  expect(a.source).toMatch(/<animate/)
+})
+
+test('마나가 낮으면 데스크톱 영창 빛도 어두워진다', async () => {
+  const bright = heroArt(fakeEls, 'desktop', 'spellblade', 'cast1', 'band', 0, false, false) as Record<string, string>
+  const dim = heroArt(fakeEls, 'desktop', 'spellblade', 'cast1', 'band', 0, false, true) as Record<string, string>
+  expect(dim.source).not.toBe(bright.source)
+})
+
+// 밴드 오른쪽 글줄 수
+function lineCount(v: CardView): number {
+  const panel = bandPanel(fakeEls, { type: 'Raster' }, v) as { children: [unknown, { children: unknown[] }] }
+  return panel.children[1].children.length
+}
+
+test('밴드 글줄 수는 상태와 상관없이 6줄', async () => {
+  const plain = view({ xp: 12000 })
+  const gauges = view({ xp: 12000, hp: 41, mp: 62 })
+  const banner = { ...view({ xp: 12000, hp: 41, mp: 62 }), banner: '✨ LEVEL UP!  Lv.14 → Lv.15 ✨' }
+  const memory = { ...view({ xp: 12000 }), memory: 96, context: 62 }
+  expect([plain, gauges, banner, memory].map(lineCount)).toEqual([6, 6, 6, 6])
 })

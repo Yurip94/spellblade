@@ -1,4 +1,4 @@
-import { frameFor, silhouette } from './art.ts'
+import { dimMagic, frameFor, silhouette } from './art.ts'
 import { STAGES, type StageId } from './balance.ts'
 import { ZERO, type LogEntry, type Sum } from './ledger.ts'
 import type { Gauge } from './limits.ts'
@@ -35,6 +35,7 @@ export type CardView = {
   bestCombo: number
   banner: string | null
   turn: { in: number; out: number; cw: number; cr: number; xp: number } | null
+  session: { in: number; out: number; cw: number; cr: number; xp: number } | null
   today: Sum
   equipment: ReturnType<typeof equipmentAt>
   stats: { str: number; int: number; agi: number; luk: number }
@@ -46,16 +47,16 @@ export function baseView(p: Progress): CardView {
   return {
     name: '렌', title: null, progress: p, todayXp: 0, weekXp: 0, todaySwings: 0, line: '쉬는 중', log: [], isDemo: false,
     limits: { hp: null, mp: null }, resets: { hp: '', mp: '' }, quests: [], streak: 0, memory: null, context: null,
-    combo: 0, bestCombo: 0, banner: null, turn: null, today: ZERO, equipment: equipmentAt(p.level), stats: { str: 1, int: 1, agi: 1, luk: 1 }, titles: [],
+    combo: 0, bestCombo: 0, banner: null, turn: null, session: null, today: ZERO, equipment: equipmentAt(p.level), stats: { str: 1, int: 1, agi: 1, luk: 1 }, titles: [],
   }
 }
 
 export type BandMode = 'panel' | 'line' | 'off'
 export type Motion = 'smooth' | 'frames'
 
-// userConfig.motion: smooth(데스크톱은 SVG 안에서 움직임) · frames(1차처럼 프레임 교체)
+// userConfig.motion: frames(기본, 0.4초마다 그림 교체) · smooth(데스크톱은 SVG 안에서 움직임)
 export function motionOf(v: unknown): Motion {
-  return v === 'frames' ? 'frames' : 'smooth'
+  return v === 'smooth' ? 'smooth' : 'frames'
 }
 
 // userConfig.band 값 읽기. 모르는 값은 기본 panel
@@ -99,7 +100,8 @@ export function bandLineText(v: CardView): string {
 type Make = (props: Record<string, unknown>) => unknown
 export type Els = { Box: Make; Text: Make; Button?: Make; Svg?: Make; Raster?: Make }
 
-const SVG_PIXEL = { band: 3, pane: 6 } as const
+// 데스크톱 그림 크기(도트 하나의 px) — 자세와 상관없이 고정
+const SVG_PIXEL = { band: 4, pane: 6 } as const
 
 // 터미널은 Raster(▀ 반칸), 그 밖은 Svg. 터미널의 resolve 도 Svg 를 내주지만 그려지지 않으므로 표면으로 고른다
 // 데스크톱 smooth: 짝이 되는 자세는 같은 애니메이션 SVG 를 내서 다시 그려도 처음부터 시작하지 않는다
@@ -110,8 +112,11 @@ function animated(stage: StageId, pose: Pose): { frames: ReturnType<typeof frame
   return null
 }
 
-export function heroArt(el: Els, surface: string, stage: StageId, pose: Pose, size: 'band' | 'pane', frame: 0 | 1 = 0, smooth = false): unknown {
-  const f = frameFor(stage, pose, frame)
+// 데스크톱 그림은 모든 자세가 같은 크기(width · height 고정) · 같은 방식(smooth 면 모두 움직이는 SVG, 아니면 모두 보통 그림)
+// dim: 마나가 낮을 때 영창 빛을 어둡게
+export function heroArt(el: Els, surface: string, stage: StageId, pose: Pose, size: 'band' | 'pane', frame: 0 | 1 = 0, smooth = false, dim = false): unknown {
+  const shade = (g: ReturnType<typeof frameFor>) => (dim ? dimMagic(g) : g)
+  const f = shade(frameFor(stage, pose, frame))
   const alt = `${STAGES.find(s => s.id === stage)?.name ?? ''} 마검사`
   if (surface === 'terminal') {
     if (!el.Raster) return null
@@ -120,9 +125,14 @@ export function heroArt(el: Els, surface: string, stage: StageId, pose: Pose, si
     return el.Raster(gridToRaster(grid, f.palette, `hero-${size}`))
   }
   if (!el.Svg) return null
-  const anim = smooth ? animated(stage, pose) : null
-  if (anim) return el.Svg({ source: framesToSvg(anim.frames, SVG_PIXEL[size], anim.ms), alt, isInteractive: true })
-  return el.Svg({ source: gridToSvg(f.grid, f.palette, SVG_PIXEL[size]), alt })
+  const px = SVG_PIXEL[size]
+  const box = { width: f.grid[0].length * px, height: f.grid.length * px }
+  if (smooth) {
+    const anim = animated(stage, pose)
+    const source = anim ? framesToSvg(anim.frames.map(shade), px, anim.ms) : gridToSvg(f.grid, f.palette, px)
+    return el.Svg({ source, alt, ...box, isInteractive: true })
+  }
+  return el.Svg({ source: gridToSvg(f.grid, f.palette, px), alt, ...box })
 }
 
 const text = (el: Els, children: string, extra: Record<string, unknown> = {}) => el.Text({ wrap: 'truncate-end', children: [children], ...extra })
@@ -145,19 +155,24 @@ function memoryLine(v: CardView): string | null {
   return parts.length ? parts.join(' · ') : null
 }
 
+// 밴드 오른쪽 글은 언제나 6줄 — 줄이 생겼다 사라지며 밴드 높이가 들썩이지 않게 빈 줄로 자리를 지킨다
+export const BAND_LINES = 6
+
 export function bandPanel(el: Els, art: unknown, v: CardView): unknown {
   const p = v.progress
   const done = v.quests.filter(q => q.done).length
-  const lines: unknown[] = []
-  if (v.banner) lines.push(text(el, v.banner, { bold: true, color: 'yellow' }))
-  lines.push(text(el, `${v.title ? `「${v.title}」 ` : ''}${v.name} · ${p.stage.name} ${levelLabel(p)}`, { bold: true }))
-  lines.push(text(el, xpLine(p, 13)))
+  const blank = () => text(el, ' ')
   const gauges = gaugesLine(v)
-  if (gauges) lines.push(text(el, gauges))
-  lines.push(text(el, `${p.stage.emoji} ${v.line}`))
-  lines.push(text(el, `오늘 +${comma(v.todayXp)} XP${v.quests.length ? ` · 의뢰 ${done}/${v.quests.length}` : ''}${v.streak ? ` · 🔥 ${v.streak}일` : ''}`))
   const memory = memoryLine(v)
-  if (memory && !v.banner) lines.push(text(el, memory, { dimColor: true }))
+  const lines: unknown[] = [
+    text(el, `${v.title ? `「${v.title}」 ` : ''}${v.name} · ${p.stage.name} ${levelLabel(p)}`, { bold: true }),
+    text(el, xpLine(p, 13)),
+    gauges ? text(el, gauges) : blank(),
+    // 배너는 상태 줄 자리에 — 줄 수를 늘리지 않는다
+    v.banner ? text(el, v.banner, { bold: true, color: 'yellow' }) : text(el, `${p.stage.emoji} ${v.line}`),
+    text(el, `오늘 +${comma(v.todayXp)} XP${v.quests.length ? ` · 의뢰 ${done}/${v.quests.length}` : ''}${v.streak ? ` · 🔥 ${v.streak}일` : ''}`),
+    memory ? text(el, memory, { dimColor: true }) : blank(),
+  ]
   return el.Box({ flexDirection: 'row', columnGap: 2, children: [art, el.Box({ flexDirection: 'column', justifyContent: 'center', children: lines })] })
 }
 
@@ -192,7 +207,7 @@ function statusTab(el: Els, v: CardView, road?: unknown[]): unknown[] {
       children: [
         text(el, `${p.stage.emoji} ${v.title ? `「${v.title}」 ` : ''}${v.name} · ${p.stage.name} ${levelLabel(p)}`, { bold: true }),
         text(el, xpLine(p, 20)),
-        ...(gauges ? [text(el, gauges)] : []),
+        text(el, gauges ?? ' '),
         text(el, `오늘 +${comma(v.todayXp)} XP · 이번 주 +${comma(v.weekXp)} XP · 오늘 베기 ${comma(v.todaySwings)}번`),
         text(el, `지금: ${v.line}`, { dimColor: true }),
       ],
@@ -238,7 +253,11 @@ function recordTab(el: Els, v: CardView): unknown[] {
         text(el, `  이번 턴  출력 ${comma(t.out)} · 입력 ${comma(t.in)} · 캐시 쓰기 ${comma(t.cw)} · 캐시 읽기 ${comma(t.cr)}`),
         text(el, `           ${formulaLine(t)}  →  +${comma(t.xp)} XP`, { dimColor: true }),
       ]
-    : [text(el, '  이번 턴 기록이 아직 없어요', { dimColor: true })]
+    : [text(el, '  이번 턴 기록이 아직 없어요', { dimColor: true }), text(el, ' ')]
+  const se = v.session
+  const sessionRow = se
+    ? text(el, `  이 세션  출력 ${shortNum(se.out)} · 입력 ${shortNum(se.in)} · 캐시 쓰기 ${shortNum(se.cw)} · 캐시 읽기 ${shortNum(se.cr)}  →  +${comma(se.xp)} XP`)
+    : text(el, '  이 세션  아직 기록이 없어요', { dimColor: true })
   const d = v.today
   const mem = memoryRate(d)
   const journal = v.log.length
@@ -251,6 +270,7 @@ function recordTab(el: Els, v: CardView): unknown[] {
   return [
     section(el, '전투 기록', [
       ...turnRows,
+      sessionRow,
       text(el, `  오늘    출력 ${shortNum(d.out)} · 캐시 읽기 ${shortNum(d.cr)}${mem !== null ? ` · 기억 ${mem}%` : ''}  →  +${comma(v.todayXp)} XP`),
       ...(v.context !== null ? [text(el, `  🎒 배낭 ${v.context}%${v.context >= 80 ? ' — /compact 로 정리' : ''}`)] : []),
     ]),

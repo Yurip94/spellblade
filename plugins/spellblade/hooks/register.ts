@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { DEFAULT_NAME, FAST_TURN_MS, LOG_MAX, MS, NIGHT_HOURS, STAGES } from './lib/balance.ts'
+import { DEFAULT_NAME, FAST_TURN_MS, LIMIT_WARN, LOG_MAX, MS, NIGHT_HOURS, STAGES } from './lib/balance.ts'
 import { bonusesFor, objectJosa, subjectJosa, topicJosa } from './lib/bonus.ts'
 import { skillOf } from './lib/skills.ts'
 import { addSum, allowedBonus, dayKey, entryKey, isEntry, isLogEntry, isProfile, parseEntryKey, sumByDay, sumEntries, sumXp, ZERO, type Entry, type LogEntry, type Sum } from './lib/ledger.ts'
@@ -45,8 +45,21 @@ let chosenTitle: string | null = null // /blade title 로 고른 칭호
 let lastTurn: CardView['turn'] = null
 let banner: { text: string; until: number } | null = null
 let tab: Tab = 1 // 카드 창 탭
-let surface = 'terminal' // 이 세션이 그려지는 곳
-let smooth = true // 데스크톱은 SVG 안에서 움직임(userConfig.motion)
+let surface = 'terminal' // session.start 가 알려 준 표면(데스크톱에선 null 일 수 있다)
+let renderSurface: string | null = null // 실제로 그린 표면(ui.render 의 e.surface)
+let smooth = false // 데스크톱을 SVG 안에서 움직일지(userConfig.motion, 기본 frames)
+let levelSeen = 0 // 이 창이 이미 본 레벨 — 레벨업 알림을 한 번만 내려고 먼저 차지한다
+let questsFrom = '' // 이 날부터 의뢰 보상을 센다(2.0 을 처음 켠 날 — 지난날 소급 없음)
+let sessionW = 0
+let sessionTokens = { in: 0, out: 0, cw: 0, cr: 0 }
+// 레벨업 · 의뢰 · 칭호 알림을 한 줄로 세운다(도구를 동시에 불러도 토스트 · 일지가 겹치지 않게)
+let announceChain: Promise<void> = Promise.resolve()
+
+function announcing(job: () => Promise<void>): Promise<void> {
+  const run = announceChain.then(job)
+  announceChain = run.catch(() => {})
+  return run
+}
 
 let turnW = 0
 let activity: Activity = { working: false, lastActiveAt: 0, flash: null }
@@ -133,6 +146,11 @@ function demoNow(): ReturnType<typeof demoFrame> {
   return f
 }
 
+// 마나(5시간 한도)가 경고선 아래면 영창 빛을 어둡게
+function magicDim(pose: string): boolean {
+  return (pose === 'cast1' || pose === 'cast2') && limits.mp !== null && limits.mp.left < LIMIT_WARN.mp
+}
+
 function bannerNow(): string | null {
   return banner && clockNow < banner.until ? banner.text : null
 }
@@ -173,6 +191,7 @@ function snapshot(): CardView {
     bestCombo: t.combo,
     banner: bannerNow(),
     turn: activity.working ? { ...turnTokens, xp: Math.floor(turnW / 1000) } : lastTurn,
+    session: sessionW > 0 ? { ...sessionTokens, xp: Math.floor(sessionW / 1000) } : null,
     today: t,
     equipment: equipmentAt(progress.level),
     stats: statsOf(life),
@@ -188,7 +207,7 @@ function drawState(): { stage: CardView['progress']['stage']; pose: ReturnType<t
   // 레벨업 빛기둥은 두 프레임을 번갈아
   const frame: 0 | 1 = pose === 'levelup' && Math.floor(clockNow / MS.castFrame) % 2 === 1 ? 1 : 0
   // 데스크톱 smooth 는 SVG 가 스스로 움직이므로 짝 자세가 바뀌어도 다시 그리지 않는다
-  const svgMoves = smooth && surface !== 'terminal'
+  const svgMoves = smooth && (renderSurface ?? surface) !== 'terminal'
   const keyPose = svgMoves ? ({ cast2: 'cast1', blink: 'idle' } as Record<string, string>)[pose] ?? pose : pose
   const keyFrame = svgMoves ? 0 : frame
   return { stage: v.progress.stage, pose, frame, key: `${demo ? 'demo' : ''}|${v.progress.stage.id}|${keyPose}|${keyFrame}|${line}|${v.progress.xp}|${v.banner ?? ''}` }
@@ -237,15 +256,17 @@ async function loadNow($: EngineInterface): Promise<void> {
   pastQuestsDone = 0
   pastWeekQuestXp = 0
   activeDays = new Set()
+  questsFrom = isProfile(profile) && typeof profile.questsFrom === 'string' ? profile.questsFrom : newToday
   for (const [day, s] of sumByDay(rows)) {
     if (day === today) continue
     const dayXp = sumXp(s)
+    if (dayXp >= 1) activeDays.add(day)
+    if (day < questsFrom) continue // 의뢰가 없던 날(2.0 전)은 보상을 소급하지 않는다
     const status = questStatus(day, s, dayXp)
     const reward = status.reduce((n, q) => n + (q.done ? q.quest.reward : 0), 0)
     pastQuestXp += reward
     pastQuestsDone += status.filter(q => q.done).length
     if (week.has(day)) pastWeekQuestXp += reward
-    if (dayXp >= 1) activeDays.add(day)
   }
   questsNotified = new Set(Array.isArray(notified) ? notified.filter((n): n is number => typeof n === 'number') : [])
   titleOrder = isProfile(profile) && Array.isArray(profile.titles) ? profile.titles.filter(t => TITLES.some(x => x.id === t)) : []
@@ -256,13 +277,22 @@ async function loadNow($: EngineInterface): Promise<void> {
   activity = { ...activity, lastActiveAt: now }
   $.ui.invalidate('ui.render')
 
+  // 이 창이 켜지기 전에 오른 레벨은 다시 알리지 않는다
+  const levelNow = levelOf(totalXp())
+  levelSeen = Math.max(isProfile(profile) ? profile.lastLevel : 0, levelNow)
+
   // 처음 켤 때는 이미 이룬 것을 조용히 기록만 한다(지난 레벨 · 칭호 · 의뢰를 한꺼번에 알리지 않으려고)
   const earned = earnedTitles(lifetime())
-  if (!isProfile(profile) || !Array.isArray(profile.titles)) {
-    const base = isProfile(profile) ? profile : { name, createdAt: now, lastLevel: levelOf(totalXp()) }
-    knownTitles = new Set(earned)
-    titleOrder = [...earned]
-    await $.store.set('profile', { ...base, titles: earned })
+  const needTitles = !isProfile(profile) || !Array.isArray(profile.titles)
+  const needFrom = !isProfile(profile) || typeof profile.questsFrom !== 'string'
+  if (needTitles || needFrom) {
+    const base = isProfile(profile) ? profile : { name, createdAt: now, lastLevel: levelNow }
+    const titles = needTitles ? earned : (base as { titles?: string[] }).titles ?? []
+    if (needTitles) {
+      knownTitles = new Set(earned)
+      titleOrder = [...earned]
+    }
+    await $.store.set('profile', { ...base, titles, questsFrom, lastLevel: Math.max(base.lastLevel, levelNow) })
   }
   if (!Array.isArray(notified)) {
     const t = todaySum()
@@ -356,20 +386,30 @@ async function addUsage($: EngineInterface, w: number, u: { input_tokens: number
   e.cw = (e.cw ?? 0) + u.cache_creation_input_tokens
   e.cr = (e.cr ?? 0) + u.cache_read_input_tokens
   turnTokens = { in: turnTokens.in + u.input_tokens, out: turnTokens.out + u.output_tokens, cw: turnTokens.cw + u.cache_creation_input_tokens, cr: turnTokens.cr + u.cache_read_input_tokens }
+  sessionTokens = { in: sessionTokens.in + u.input_tokens, out: sessionTokens.out + u.output_tokens, cw: sessionTokens.cw + u.cache_creation_input_tokens, cr: sessionTokens.cr + u.cache_read_input_tokens }
+  sessionW += w
   dirty.add(day)
   clockNow = now
   activity = { ...activity, lastActiveAt: now }
 }
 
-// 경험치가 늘어난 뒤: 레벨이 올랐으면 알리고 일지에 남긴다. 다른 세션이 이미 알렸으면 조용히
-async function afterGain($: EngineInterface, beforeXp: number): Promise<void> {
-  await announceQuests($)
-  await announceTitles($)
+// 경험치가 늘어난 뒤: 의뢰 · 칭호 · 레벨업을 알린다. 알림은 한 줄로 세우고, 다른 창이 이미 알렸으면 조용히
+function afterGain($: EngineInterface): Promise<void> {
+  return announcing(async () => {
+    await announceQuests($)
+    await announceTitles($)
+    await announceLevel($)
+  })
+}
+
+async function announceLevel($: EngineInterface): Promise<void> {
   const after = levelOf(totalXp())
-  if (after <= levelOf(beforeXp)) return
+  if (after <= levelSeen) return
+  const from = levelSeen
+  levelSeen = after // 먼저 차지한다(기다리는 사이 같은 레벨업을 또 알리지 않게)
   const stored = await $.store.get('profile')
-  const last = isProfile(stored) ? stored.lastLevel : levelOf(beforeXp)
-  if (after <= last) return
+  const last = isProfile(stored) ? Math.max(stored.lastLevel, from) : from
+  if (after <= last) return // 다른 창이 이미 알렸다
   activity = withFlash(activity, 'levelup', clockNow)
   $.ui.toast(`⬆ ${name} Lv.${after}!`)
   banner = { text: `✨ LEVEL UP!  Lv.${last} → Lv.${after} ✨`, until: clockNow + MS.levelUp }
@@ -377,6 +417,7 @@ async function afterGain($: EngineInterface, beforeXp: number): Promise<void> {
   if (stage.id !== stageOf(last).id) {
     $.ui.toast(`🎉 ${name}${subjectJosa(name)} ${stage.name}${subjectJosa(stage.name)} 되었어요!`, { timeoutMs: MS.stageToast })
     banner = { text: `🎉 승급!  ${stageOf(last).name} → ${stage.name}`, until: clockNow + MS.stageToast }
+    tab = 1 // 새 단계가 보이는 상태 탭으로
     try {
       // 승급은 카드 창을 저절로 연다(터미널은 넓은 창에서만 보인다)
       await $.ui.open({ id: PANE, title: '마검사', closeOnEscape: true })
@@ -384,13 +425,10 @@ async function afterGain($: EngineInterface, beforeXp: number): Promise<void> {
       // 못 열어도 배너 · 토스트는 남는다
     }
   }
-  // 다른 창이 그사이 남긴 일지를 지우지 않도록 저장된 것을 다시 읽고 앞에 붙인다
-  const saved = await $.store.get('log')
-  const current = Array.isArray(saved) ? saved.filter(isLogEntry) : log
-  log = [{ at: clockNow, level: after, stage: stage.id, kind: 'level' as const }, ...current].slice(0, LOG_MAX)
-  await $.store.set('log', log)
-  const base = isProfile(stored) ? stored : { name, createdAt: clockNow, lastLevel: last }
-  await $.store.set('profile', { ...base, lastLevel: after })
+  await addLog($, { at: clockNow, level: after, stage: stage.id, kind: 'level' })
+  const fresh = await $.store.get('profile')
+  const base = isProfile(fresh) ? fresh : { name, createdAt: clockNow, lastLevel: last }
+  await $.store.set('profile', { ...base, lastLevel: Math.max(base.lastLevel, after) })
 }
 
 // 일지에 한 줄 더하기(다른 창이 남긴 것을 지우지 않도록 다시 읽고 앞에 붙인다)
@@ -401,37 +439,43 @@ async function addLog($: EngineInterface, entry: LogEntry): Promise<void> {
   await $.store.set('log', log)
 }
 
-// 오늘 의뢰를 새로 끝냈으면 한 번만 알린다(q:<오늘> 에 기록)
+// 오늘 의뢰를 새로 끝냈으면 한 번만 알린다(q:<오늘> 에 먼저 기록하고 알린다)
 async function announceQuests($: EngineInterface): Promise<void> {
   const t = todaySum()
   const fresh = questStatus(today, t, sumXp(t)).filter(q => q.done && !questsNotified.has(q.quest.index))
   if (fresh.length === 0) return
+  for (const q of fresh) questsNotified.add(q.quest.index) // 먼저 차지
   const stored = await $.store.get(`q:${today}`)
   const already = new Set(Array.isArray(stored) ? stored : [])
+  await $.store.set(`q:${today}`, [...new Set([...already, ...questsNotified])])
   for (const q of fresh) {
-    questsNotified.add(q.quest.index)
     if (already.has(q.quest.index)) continue // 다른 창이 이미 알렸다
-    $.ui.toast(`📜 의뢰 완료! ${q.quest.title} +${q.quest.reward} XP`)
+    const message = `📜 의뢰 완료! ${q.quest.title} +${q.quest.reward} XP`
+    $.ui.toast(message)
+    activity = withFlash(activity, 'loot', clockNow, message)
     await addLog($, { at: clockNow, level: levelOf(totalXp()), stage: stageOf(levelOf(totalXp())).id, kind: 'quest', text: `의뢰 완료 · ${q.quest.title}` })
   }
-  await $.store.set(`q:${today}`, [...new Set([...already, ...questsNotified])])
 }
 
-// 새 칭호를 얻었으면 한 번만 알린다(profile.titles 에 기록)
+// 새 칭호를 얻었으면 한 번만 알린다(profile.titles 에 먼저 기록하고 알린다)
 async function announceTitles($: EngineInterface): Promise<void> {
   const fresh = earnedTitles(lifetime()).filter(id => !knownTitles.has(id))
   if (fresh.length === 0) return
+  for (const id of fresh) {
+    knownTitles.add(id) // 먼저 차지
+    titleOrder.push(id)
+  }
   const stored = await $.store.get('profile')
   const saved = new Set(isProfile(stored) && Array.isArray(stored.titles) ? stored.titles : [])
-  for (const id of fresh) {
-    knownTitles.add(id)
-    titleOrder.push(id)
-    if (saved.has(id)) continue
-    $.ui.toast(`🏅 칭호 「${titleName(id)}」을 얻었어요`)
-    await addLog($, { at: clockNow, level: levelOf(totalXp()), stage: stageOf(levelOf(totalXp())).id, kind: 'title', text: `칭호 「${titleName(id)}」` })
-  }
   const base = isProfile(stored) ? stored : { name, createdAt: clockNow, lastLevel: levelOf(totalXp()) }
   await $.store.set('profile', { ...base, titles: [...new Set([...saved, ...knownTitles])] })
+  for (const id of fresh) {
+    if (saved.has(id)) continue // 다른 창이 이미 알렸다
+    const title = titleName(id) ?? id
+    $.ui.toast(`🏅 칭호 「${title}」${objectJosa(title)} 얻었어요`)
+    activity = withFlash(activity, 'loot', clockNow, `🏅 칭호 「${title}」`)
+    await addLog($, { at: clockNow, level: levelOf(totalXp()), stage: stageOf(levelOf(totalXp())).id, kind: 'title', text: `칭호 「${title}」` })
+  }
 }
 
 // 성공한 Bash 의 커밋 · PR 보너스(하루 상한 안에서)
@@ -502,8 +546,22 @@ async function reset($: EngineInterface): Promise<string> {
   }
   if (answer !== '처음부터') return '그만뒀어요'
   for (const key of await $.store.keys()) {
-    if (key.startsWith('d:') || key === 'profile' || key === 'log') await $.store.delete(key)
+    if (key.startsWith('d:') || key.startsWith('q:') || key === 'profile' || key === 'log') await $.store.delete(key)
   }
+  // 이 창이 메모리에 들고 있던 몫도 지운다(안 지우면 다음 저장 때 되살아난다)
+  mine.clear()
+  dirty.clear()
+  combo = 0
+  cleanRun = 0
+  lastTurn = null
+  sessionW = 0
+  sessionTokens = { in: 0, out: 0, cw: 0, cr: 0 }
+  levelSeen = 0
+  questsNotified = new Set()
+  knownTitles = new Set()
+  titleOrder = []
+  chosenTitle = null
+  banner = null
   await load($)
   return `처음부터 다시 시작해요. 수련생 ${name}, 잘 부탁해요!`
 }
@@ -588,11 +646,10 @@ export const register: Register = (on, options) => {
   on('turn.step', async function* ($, e, next) {
     const result = yield* next(e)
     if (result.usage) {
-      const before = totalXp()
       const w = weightOf(result.usage)
       turnW += w
       await addUsage($, w, result.usage)
-      await afterGain($, before)
+      await afterGain($)
       $.ui.invalidate('ui.render')
     }
     return result
@@ -602,7 +659,6 @@ export const register: Register = (on, options) => {
     if (!e.agentId) {
       clockNow = await $.clock.now()
       activity = { ...activity, working: false, lastActiveAt: clockNow }
-      const before = totalXp()
       const day = dayKey(clockNow, tz)
       const entry = mineOn(day)
       entry.turns = (entry.turns ?? 0) + 1
@@ -615,7 +671,7 @@ export const register: Register = (on, options) => {
       // 정상 답변으로 끝난 턴만 승리 (중단 · API 오류 · 거절은 아님)
       if (!e.isAborted && e.reason === 'answer') activity = withFlash(activity, 'victory', clockNow, victorySummary())
       lastTurn = { ...turnTokens, xp: Math.floor(turnW / 1000) }
-      await afterGain($, before)
+      await afterGain($)
     }
     await flushQuietly($)
     $.ui.invalidate('ui.render')
@@ -647,7 +703,6 @@ export const register: Register = (on, options) => {
     if (skill.id === 'clone') entry.agents = (entry.agents ?? 0) + 1
     if (main) entry.combo = Math.max(entry.combo ?? 0, combo)
     dirty.add(day)
-    const before = totalXp()
     if (out.isError) {
       if (main) {
         combo = 0
@@ -658,7 +713,7 @@ export const register: Register = (on, options) => {
       const message = applyBonus(String((e as { command?: unknown }).command ?? ''), day)
       if (message) activity = withFlash(activity, 'loot', now, message)
     }
-    await afterGain($, before)
+    await afterGain($)
     $.ui.invalidate('ui.render')
     return out
   }).catch(async ($, e, next) => (next.called ? undefined : next(e))) // 기록에 실패해도 도구 결과는 그대로
@@ -676,8 +731,10 @@ export const register: Register = (on, options) => {
     const v = snapshot()
     const { stage, pose, frame } = drawState()
     // 그림판은 8줄 그림 + 다른 Mod 줄 여유 2줄 → 10줄 이상에서만
-    const roomy = band === 'panel' && e.props.bodyColumns >= 64 && e.props.maxRows >= 10
-    const art = roomy ? heroArt(el, e.surface, stage.id, pose, 'band', frame, smooth) : null
+    renderSurface = e.surface
+    // 그림판: 그림 32칸 + 글 50칸 → 84칸 이상, 8줄 그림 + 다른 Mod 줄 여유 → 10줄 이상
+    const roomy = band === 'panel' && e.props.bodyColumns >= 84 && e.props.maxRows >= 10
+    const art = roomy ? heroArt(el, e.surface, stage.id, pose, 'band', frame, smooth, magicDim(pose)) : null
     const mine = art ? bandPanel(el, art, v) : el.Text({ wrap: 'truncate-end', children: [bandLineText(v)] })
     return el.Box({ flexDirection: 'column', children: [mine, below] }) as any
   })
@@ -691,7 +748,8 @@ export const register: Register = (on, options) => {
         tab = t
         $.ui.invalidate('ui.render')
       }
-      return card(el, heroArt(el, e.surface, stage.id, pose, 'pane', frame, smooth), snapshot(), tab, onTab, stageRoad(el, e.surface, stage.id)) as any
+      renderSurface = e.surface
+      return card(el, heroArt(el, e.surface, stage.id, pose, 'pane', frame, smooth, magicDim(pose)), snapshot(), tab, onTab, stageRoad(el, e.surface, stage.id)) as any
     }
     if (e.requestId !== PROBE) return next(e)
     const el: any = $.ui.resolve(e)

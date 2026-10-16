@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { EFFECTS, frameFor, POSES, silhouette, STAGE_LOOKS } from '../hooks/lib/art.ts'
+import { dimMagic, EFFECTS, frameFor, POSES, silhouette, STAGE_LOOKS } from '../hooks/lib/art.ts'
 import { gridErrors, HEIGHT, WIDTH } from '../hooks/lib/sprites.ts'
 import { gridToSvg } from '../hooks/lib/to-svg.ts'
 
@@ -65,4 +65,34 @@ test('Svg 크기 한도', async () => {
     const f = frameFor(s, p)
     expect(gridToSvg(f.grid, f.palette, 6).length).toBeLessThan(131072)
   }
+})
+
+// ---- 크기 통일: 자세가 바뀌어도 몸은 제자리 ----
+
+function sameRegion(a: ReturnType<typeof frameFor>, b: ReturnType<typeof frameFor>, y0: number, y1: number, x0: number, x1: number): boolean {
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const ca = a.grid[y][x] === '.' ? -1 : a.palette[a.grid[y][x]]
+    const cb = b.grid[y][x] === '.' ? -1 : b.palette[b.grid[y][x]]
+    if (ca !== cb) return false
+  }
+  return true
+}
+
+test('베기 · 반격 · 승리에도 몸이 제자리', async () => {
+  for (const s of STAGES_) {
+    const idle = frameFor(s, 'idle')
+    for (const p of ['slash', 'hit', 'victory'] as const) {
+      // 머리 윗부분(머리카락)과 다리는 서 있을 때와 같은 자리
+      expect(sameRegion(frameFor(s, p), idle, 2, 7, 9, 21)).toBe(true)
+      expect(sameRegion(frameFor(s, p), idle, 26, 30, 10, 20)).toBe(true)
+    }
+  }
+})
+
+test('마나가 낮으면 영창 빛이 어두워진다', async () => {
+  const normal = frameFor('spellblade', 'cast1')
+  const dim = dimMagic(normal)
+  expect(dim.grid).toEqual(normal.grid)
+  expect(dim.palette.M).not.toBe(normal.palette.M)
+  expect(dim.palette.N).not.toBe(normal.palette.N)
 })

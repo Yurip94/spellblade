@@ -78,15 +78,13 @@ def top_blink():
     return rows(c)
 
 def top_slash():
-    # 몸은 frameFor 가 (-3, 0) 옮긴 뒤 이 층을 얹는다 — 칼을 오른쪽으로 길게 뻗는다
+    # 몸은 제자리 — 오른팔을 앞으로 뻗고 칼을 수평으로 (자세가 바뀌어도 캐릭터가 튀지 않게)
     c = clear()
-    for y in (16, 17): paint(c, y, 19, 22, 'A')          # 앞으로 뻗은 팔
-    paint(c, 16, 23, 24, 'S'); paint(c, 17, 23, 24, 'S')  # 손
-    for y in (14, 15, 18, 19): dot(c, 25, y, 'G')         # 가드
-    paint(c, 16, 25, 25, 'G'); paint(c, 17, 25, 25, 'G')
-    for x in range(26, 32):                               # 칼날 2칸 굵기
-        dot(c, x, 16, 'W'); dot(c, x, 17, 'W')
-    dot(c, 28, 16, 'R'); dot(c, 31, 16, 'R')
+    for y in (16, 17): paint(c, y, 22, 24, 'A')           # 앞으로 뻗은 팔
+    paint(c, 16, 25, 25, 'S'); paint(c, 17, 25, 25, 'S')   # 손
+    for y in range(14, 20): dot(c, 26, y, 'G')             # 세운 가드
+    for x in range(27, 32): dot(c, x, 16, 'W'); dot(c, x, 17, 'W')
+    dot(c, 29, 16, 'R')
     return rows(c)
 
 def happy_eyes(c):
@@ -95,25 +93,26 @@ def happy_eyes(c):
     paint(c, 12, 14, 16, 'm')
 
 def top_victory():
+    # 칼을 하늘로 — 머리에 닿지 않게 한 칸 떨어뜨린다
     c = clear()
-    for y in range(9, 17): paint(c, y, 23, 24, 'A')      # 팔을 하늘로
-    paint(c, 8, 23, 24, 'S')
-    paint(c, 7, 21, 26, 'G')
-    for y in range(0, 7): paint(c, y, 23, 24, 'W')
-    dot(c, 23, 2, 'R'); dot(c, 23, 5, 'R')
+    for y in range(9, 17): paint(c, y, 24, 25, 'A')      # 팔을 하늘로
+    paint(c, 8, 24, 25, 'S')
+    paint(c, 7, 23, 26, 'G')
+    for y in range(0, 7): paint(c, y, 24, 25, 'W')
+    dot(c, 24, 2, 'R'); dot(c, 24, 5, 'R')
     happy_eyes(c)
     return rows(c)
 
 def top_hit():
-    # 몸은 frameFor 가 (-1, +1) 옮긴 뒤 이 층을 얹는다 — 좌표는 옮긴 뒤 기준
+    # 몸은 제자리 — 칼이 오른쪽 아래로 기울고 눈을 질끈 감는다
     c = clear()
-    for y in range(18, 21): paint(c, y, 21, 23, 'A')
-    paint(c, 21, 22, 24, 'S')
-    for i in range(7): dot(c, 24 + i, 22 + i, 'W'); dot(c, 25 + i, 22 + i, 'W')
-    dot(c, 23, 22, 'G'); dot(c, 24, 21, 'G')
-    for (x, y) in ((11, 11), (11, 12), (17, 11), (17, 12)): dot(c, x, y, 'S')
-    for (x, y) in ((10, 10), (11, 11), (10, 12), (18, 10), (17, 11), (18, 12)): dot(c, x, y, 'E')
-    dot(c, 14, 13, 'm')
+    for y in range(18, 21): paint(c, y, 22, 24, 'A')
+    paint(c, 21, 23, 25, 'S')
+    dot(c, 26, 21, 'G'); dot(c, 25, 22, 'G')
+    for i in range(6): dot(c, 26 + i, 22 + i, 'W'); dot(c, 27 + i if 27 + i < 32 else 31, 22 + i, 'W')
+    for (x, y) in ((12, 10), (12, 11), (18, 10), (18, 11)): dot(c, x, y, 'S')
+    for (x, y) in ((11, 9), (12, 10), (11, 11), (19, 9), (18, 10), (19, 11)): dot(c, x, y, 'E')
+    dot(c, 15, 12, 'm')
     return rows(c)
 
 def top_sit():
@@ -143,8 +142,8 @@ def zig(x0, y0, y1, flip):
 EFFECTS = {
     'cast1': fx({**zig(24, 0, 18, False), **zig(29, 1, 18, True), (26, 0): 'N', (27, 0): 'N'}),
     'cast2': fx({**zig(24, 1, 18, True), **zig(29, 0, 18, False), (25, 0): 'N', (28, 0): 'N'}),
-    'arc': fx({**{(x, y): 'N' for x, y in ((18, 4), (19, 4), (20, 4), (21, 5), (22, 5), (23, 6), (24, 6), (25, 7), (26, 8), (27, 9), (28, 10), (29, 11), (30, 12), (30, 13), (31, 14))},
-               **{(x, y): 'M' for x, y in ((19, 3), (20, 3), (21, 3), (22, 4), (23, 4), (24, 5), (25, 5), (26, 6), (27, 7), (28, 8), (29, 9), (30, 10), (31, 11), (31, 12))}}),
+    'arc': fx({**{(x, y): 'N' for x, y in ((23, 2), (24, 2), (25, 3), (26, 3), (27, 4), (28, 5), (29, 6), (30, 7), (30, 8), (31, 9), (31, 10), (31, 11), (31, 12), (30, 13), (30, 14))},
+               **{(x, y): 'M' for x, y in ((24, 1), (25, 1), (26, 2), (27, 2), (28, 3), (29, 4), (30, 5), (31, 6), (31, 7))}}),
     'sparkle': fx({(3, 3): 'Y', (2, 4): 'Y', (4, 4): 'Y', (3, 5): 'Y', (28, 12): 'Y', (27, 13): 'Y', (29, 13): 'Y', (28, 14): 'Y',
                    (5, 12): 'Y', (29, 3): 'Y', (19, 0): 'Y', (2, 20): 'Y'}),
     'boom': fx({(27, 4): 'X', (28, 3): 'Y', (29, 4): 'X', (28, 5): 'Y', (26, 2): 'X', (30, 2): 'X', (26, 6): 'X', (30, 6): 'X',
@@ -223,8 +222,8 @@ LOOKS = {
 FRAMES = {  # 자세: (몸, 위 층, 옮김, 효과)
     'idle': ('stand', 'stand', None, []), 'blink': ('stand', 'blink', None, []),
     'cast1': ('stand', 'stand', None, ['cast1']), 'cast2': ('stand', 'stand', None, ['cast2']),
-    'slash': ('stand', 'slash', (-3, 0), ['arc']), 'victory': ('stand', 'victory', None, ['sparkle']),
-    'hit': ('stand', 'hit', (-1, 1), ['boom']), 'levelup': ('stand', 'stand', None, ['pillar']), 'sleep': ('sit', 'sit', None, ['zzz']),
+    'slash': ('stand', 'slash', None, ['arc']), 'victory': ('stand', 'victory', None, ['sparkle']),
+    'hit': ('stand', 'hit', None, ['boom']), 'levelup': ('stand', 'stand', None, ['pillar']), 'sleep': ('sit', 'sit', None, ['zzz']),
 }
 
 # ---------- 합치기 · 음영 (shade.ts 와 같은 규칙) ----------
@@ -387,6 +386,11 @@ export function frameFor(stage: StageId, pose: Pose, frame: 0 | 1 = 0): { grid: 
   const out = { grid: effects.length ? compose(shaded.grid, ...effects) : shaded.grid, palette: shaded.palette }
   cache.set(id, out)
   return out
+}
+
+// 마나가 낮을 때: 영창 빛(M · N)을 한 단계 어둡게
+export function dimMagic(f: { grid: Grid; palette: Palette }): { grid: Grid; palette: Palette } {
+  return { grid: f.grid, palette: { ...f.palette, M: 0x2a5aa0, N: 0x6a90b8 } }
 }
 
 // 아직 못 간 단계: 그림 칸을 모두 어두운 한 색으로

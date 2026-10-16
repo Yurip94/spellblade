@@ -270,7 +270,7 @@ test('일하는 동안 영창 프레임이 바뀐다', async ($, on) => {
 })
 
 test('턴이 끝나면 승리 문구', async ($, on) => {
-  beneath(on, { now: NOON })
+  beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
   answerStep(on, 34_000)
   await start($)
   await oneTurn($)
@@ -313,7 +313,7 @@ test('오류면 반격당한다', async ($, on) => {
 })
 
 test('커밋 성공 +20', async ($, on) => {
-  beneath(on, { now: NOON })
+  beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
   on('tool.call', async () => ({ result: 'ok' }))
   await start($)
   await $.tool.call({ tool: 'Bash', command: 'git add . && git commit -m x' } as any)
@@ -572,7 +572,7 @@ test('API 오류로 끝난 턴은 승리가 아니다', async ($, on) => {
 })
 
 test('토큰 칸과 턴 기록이 저장된다', async ($, on) => {
-  const { seen } = beneath(on, { now: NOON })
+  const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
   on('turn.step', async function* () {
     return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: { input_tokens: 320, output_tokens: 2_140, cache_read_input_tokens: 410_000, cache_creation_input_tokens: 12_400, model: 'm' } }
   })
@@ -748,25 +748,36 @@ test('/blade 로 다시 열면 상태 탭부터', async ($, on) => {
   expect(await again.find({ text: /승급의 길/ })).toBeTruthy()
 })
 
-// ---- 2차 Task 11: 데스크톱 부드러운 움직임 ----
+// ---- 2차 Task 11 + 크기 통일: 데스크톱 그림 ----
 
-test('데스크톱 영창은 움직이는 SVG 하나', async ($, on) => {
+test('데스크톱 밴드 그림 크기는 자세가 바뀌어도 같다', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON })
+  toolMode = 'ok'
+  answerTools(on)
+  await start($, 'desktop')
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
+  const size = async () => {
+    const svg = JSON.stringify(await m.find({ type: 'Svg' }))
+    return [(svg.match(/"width":(\d+)/) ?? [])[1], (svg.match(/"height":(\d+)/) ?? [])[1], /"isInteractive":true/.test(svg)].join('|')
+  }
+  const idle = await size()
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await clock.advance(400)
+  const casting = await size()
+  await $.tool.call({ tool: 'Bash', command: 'ls' } as any)
+  const slashing = await size()
+  expect(idle).toMatch(/^\d+\|\d+\|/)
+  expect([casting, slashing]).toEqual([idle, idle])
+})
+
+test('데스크톱 기본은 프레임 교체(영창이 0.4초마다 바뀐다)', async ($, on) => {
   const { clock } = beneath(on, { now: NOON })
   await start($, 'desktop')
   await $.turn.start({ text: 'hi', turnId: 't' })
   const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
   const first = JSON.stringify(await m.find({ type: 'Svg' }))
-  expect(first).toMatch(/"isInteractive":true/)
-  expect(first).toMatch(/<animate/)
   await clock.advance(400)
-  expect(JSON.stringify(await m.find({ type: 'Svg' }))).toBe(first)
-})
-
-test('데스크톱 쉬는 중에도 깜빡임은 SVG 안에서', async ($, on) => {
-  beneath(on, { now: NOON })
-  await start($, 'desktop')
-  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
-  expect(JSON.stringify(await m.find({ type: 'Svg' }))).toMatch(/dur=\\"3000ms\\"/)
+  expect(JSON.stringify(await m.find({ type: 'Svg' }))).not.toBe(first)
 })
 
 // ---- 2차 Task 12: /blade title ----
@@ -799,4 +810,122 @@ test('얻은 칭호가 없으면 알려 준다', async ($, on) => {
   beneath(on, { now: NOON })
   await start($)
   expect(await blade($, 'title')).toMatch(/아직 얻은 칭호가 없어요/)
+})
+
+// ---- 최종 검토(2차)에서 나온 것 ----
+
+test('그림판은 84칸 이상에서만', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const narrow = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND({ bodyColumns: 83 }) })
+  expect(await narrow.find({ type: 'Raster' })).toBeFalsy()
+  const wide = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND({ bodyColumns: 84 }) })
+  expect(await wide.find({ type: 'Svg' })).toBeTruthy()
+})
+
+test('동시에 여러 도구가 의뢰를 끝내도 토스트 · 일지는 한 번', async ($, on) => {
+  const day = swingDay()
+  const [y, m, d] = day.split('-').map(Number)
+  const { seen } = beneath(on, { now: local(y, m - 1, d, 12, 0), store: { [`d:${day}:other`]: { ...entry(0), swings: 39 }, profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
+  toolMode = 'ok'
+  answerTools(on)
+  await start($)
+  await Promise.all([1, 2, 3].map(() => $.tool.call({ tool: 'Read', file_path: '/x' } as any)))
+  expect(seen.toasts.filter(t => t.text.startsWith('📜')).length).toBe(1)
+  const log = (seen.store.get('log') ?? []) as { kind?: string }[]
+  expect(log.filter(l => l.kind === 'quest').length).toBe(1)
+})
+
+test('동시에 칭호를 얻어도 토스트는 한 번', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: { ...entry(5_000), swings: 998 }, profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
+  toolMode = 'ok'
+  answerTools(on)
+  await start($)
+  await Promise.all([1, 2, 3].map(() => $.tool.call({ tool: 'Read', file_path: '/x' } as any)))
+  expect(seen.toasts.filter(t => t.text.startsWith('🏅')).map(t => t.text)).toEqual(['🏅 칭호 「백전노장」을 얻었어요'])
+})
+
+test('칭호 토스트 조사(을/를)', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
+  toolMode = 'ok'
+  answerTools(on)
+  await start($)
+  for (let i = 0; i < 30; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  expect(seen.toasts.map(t => t.text)).toContain('🏅 칭호 「콤보 마스터」를 얻었어요')
+})
+
+test('의뢰 보상으로 레벨이 오르면 레벨업', async ($, on) => {
+  const day = swingDay()
+  const [y, m, d] = day.split('-').map(Number)
+  const { seen } = beneath(on, { now: local(y, m - 1, d, 12, 0), store: { [`d:${day}:other`]: { ...entry(50_000), swings: 39 }, profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'], questsFrom: '2000-01-01' } } })
+  toolMode = 'ok'
+  answerTools(on)
+  await start($)
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  expect(seen.toasts.map(t => t.text)).toContain('⬆ 렌 Lv.2!')
+  expect(seen.store.get('profile')).toMatchObject({ lastLevel: 2 })
+})
+
+test('의뢰를 끝내면 상태 문구에도 2초', async ($, on) => {
+  const day = swingDay()
+  const [y, m, d] = day.split('-').map(Number)
+  beneath(on, { now: local(y, m - 1, d, 12, 0), store: { [`d:${day}:other`]: { ...entry(0), swings: 39 }, profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
+  toolMode = 'ok'
+  answerTools(on)
+  await start($)
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  expect(await bandText($)).toMatch(/📜 의뢰 완료! 베기 40번/)
+})
+
+test('2.0 을 처음 켜도 지난날 경험치는 그대로', async ($, on) => {
+  // 1.0 저장소: 지난 닷새 동안 베기가 많았다 — 그날들의 의뢰 보상을 소급하지 않는다
+  const store: Record<string, unknown> = { profile: { name: '렌', createdAt: 1, lastLevel: 5 } }
+  for (let i = 1; i <= 5; i++) store[`d:${dayKey(NOON - i * 86_400_000, TZ)}:x`] = { w: 200_000, bonus: 0, swings: 500, updatedAt: 1 }
+  const { seen } = beneath(on, { now: NOON, store })
+  await start($)
+  // 1,000 XP → Lv.5 (960), 다음 레벨(1,500)까지 500
+  expect(await bandText($)).toMatch(/다음 레벨까지 500 XP/)
+  expect(seen.store.get('profile')).toMatchObject({ questsFrom: TODAY, lastLevel: 5 })
+})
+
+test('의뢰 시작일 뒤의 지난날 보상은 센다', async ($, on) => {
+  const day = swingDay()
+  const next = new Date(Date.parse(`${day}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+  const [y, m, d] = next.split('-').map(Number)
+  beneath(on, { now: local(y, m - 1, d, 12, 0), store: { [`d:${day}:x`]: { ...entry(0), swings: 40 }, profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: [], questsFrom: day } } })
+  await start($)
+  expect(await bandText($)).toMatch(/다음 레벨까지 30 XP/)
+})
+
+test('reset 하면 내 세션 몫도 지운다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${TODAY}:me`]: entry(500_000), [`q:${TODAY}`]: [0] } })
+  answerAsk(on, '처음부터')
+  await start($)
+  expect(await blade($, 'reset')).toMatch(/처음부터/)
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  expect(await bandText($)).toMatch(/Lv\.1\/60/)
+  expect(((seen.store.get(`d:${TODAY}:me`) ?? { w: 0 }) as { w: number }).w).toBe(0)
+  expect(seen.store.get(`q:${TODAY}`) ?? []).toEqual([]) // 지난 의뢰 알림 기록은 지워졌다
+})
+
+test('승급하면 카드 창은 상태 탭으로 열린다', async ($, on) => {
+  beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(959_000), profile: { name: '렌', createdAt: 1, lastLevel: 4, titles: ['first'] } } })
+  answerStep(on, 1_000)
+  await start($)
+  const m = await openCard($)
+  await m.press({ key: 'tab3' })
+  await m.unmount()
+  await oneTurn($)
+  const again = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'Pane', requestId: 'spellblade', props: PANE() })
+  expect(await again.find({ text: /승급의 길/ })).toBeTruthy()
+})
+
+test('기록 탭에 이 세션 줄', async ($, on) => {
+  beneath(on, { now: NOON })
+  answerStep(on, 2_000)
+  await start($)
+  await oneTurn($)
+  const m = await openCard($)
+  await m.press({ key: 'tab3' })
+  expect(await m.find({ text: /이 세션  출력 2k/ })).toBeTruthy()
 })
