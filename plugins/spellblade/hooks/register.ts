@@ -1,6 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { DEFAULT_NAME, LOG_MAX, MS, STAGES } from './lib/balance.ts'
 import { bonusesFor, subjectJosa } from './lib/bonus.ts'
+import { skillOf } from './lib/skills.ts'
 import { addSum, allowedBonus, dayKey, entryKey, isEntry, isLogEntry, isProfile, parseEntryKey, sumEntries, sumXp, ZERO, type Entry, type Sum } from './lib/ledger.ts'
 import { levelOf, progressOf, stageOf, weightOf, xpForLevel } from './lib/progress.ts'
 import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
@@ -377,7 +378,7 @@ export const register: Register = (on, options) => {
     if (!e.agentId) {
       clockNow = await $.clock.now()
       activity = { ...activity, working: false, lastActiveAt: clockNow }
-      if (!e.isAborted) activity = withFlash(activity, 'victory', clockNow, String(Math.floor(turnW / 1000)))
+      if (!e.isAborted) activity = withFlash(activity, 'victory', clockNow, `+${Math.floor(turnW / 1000)} XP`)
     }
     await flushQuietly($)
     $.ui.invalidate('ui.render')
@@ -394,7 +395,7 @@ export const register: Register = (on, options) => {
     mineOn(day).swings += 1
     dirty.add(day)
     const main = !e.agentId
-    if (main) activity = withFlash(activity, 'slash', now, e.tool)
+    if (main) activity = withFlash(activity, 'slash', now, `${skillOf(e.tool).name}!`)
     if (out.isError) {
       if (main) activity = withFlash(activity, 'hit', now)
     } else if (e.tool === 'Bash') {

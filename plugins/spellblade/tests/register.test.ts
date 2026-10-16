@@ -289,7 +289,7 @@ test('도구 한 번에 베기 한 번', async ($, on) => {
   on('tool.call', async () => ({ result: 'ok' }))
   await start($)
   await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
-  expect(await bandText($)).toMatch(/베기! \(Read\)/)
+  expect(await bandText($)).toMatch(/탐색의 눈!/)
   expect(await cardText($)).toMatch(/오늘 베기 1번/)
 })
 

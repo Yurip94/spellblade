@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { compose, cropTop, gridErrors, HEIGHT, scaleGrid, shiftGrid, WIDTH } from '../hooks/lib/sprites.ts'
-import { gridToSvg } from '../hooks/lib/to-svg.ts'
+import { framesToSvg, gridToSvg } from '../hooks/lib/to-svg.ts'
 import { gridToRaster } from '../hooks/lib/to-raster.ts'
 
 const P = { a: 0xff0000, b: 0x0000ff }
@@ -70,4 +70,19 @@ test('옮기기: 밖으로 나간 칸은 버린다', async () => {
   expect(s[0]).toBe(row(''))
   expect(s[1].slice(0, 2)).toBe('b.')
   expect(s.length).toBe(HEIGHT)
+})
+
+test('애니메이션 SVG: 프레임마다 g 하나, 번갈아 보이기', async () => {
+  const a = { grid: [row('a'), ...blank.slice(1)], palette: P }
+  const b = { grid: [row('.b'), ...blank.slice(1)], palette: P }
+  const s = framesToSvg([a, b], 4, 400)
+  expect((s.match(/<g/g) ?? []).length).toBe(2)
+  expect(s).toMatch(/repeatCount="indefinite"/)
+  expect(s).toMatch(/dur="800ms"/)
+  expect(s).toMatch(/calcMode="discrete"/)
+})
+
+test('애니메이션 SVG: 한 장이면 보통 SVG 와 같다', async () => {
+  const a = { grid: [row('a'), ...blank.slice(1)], palette: P }
+  expect(framesToSvg([a], 4, 400)).toBe(gridToSvg(a.grid, a.palette, 4))
 })
