@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { equipmentAt, levelOf, progressOf, stageOf, weightOf, xpForLevel, xpOf } from '../hooks/lib/progress.ts'
+import { cleanUsage, equipmentAt, levelOf, progressOf, stageOf, weightOf, xpForLevel, xpOf } from '../hooks/lib/progress.ts'
 import { STAGES } from '../hooks/lib/balance.ts'
 
 // 키트에 toBeCloseTo 가 없다
@@ -76,4 +76,11 @@ test('장비 · 강화', async () => {
   expect(equipmentAt(1)).toMatchObject({ weapon: '나무 검', plus: 0 })
   expect(equipmentAt(45).next).toBe(null)
   expect(equipmentAt(60)).toMatchObject({ weapon: '성검', plus: 15 })
+})
+
+test('토큰 수가 숫자가 아니면 0 으로 센다', async () => {
+  const u = cleanUsage({ input_tokens: NaN, output_tokens: 100, cache_read_input_tokens: undefined, cache_creation_input_tokens: 50 } as any)
+  expect(u).toEqual({ input_tokens: 0, output_tokens: 100, cache_read_input_tokens: 0, cache_creation_input_tokens: 50 })
+  expect(weightOf(u)).toBe(105)
+  expect(cleanUsage({ input_tokens: -5, output_tokens: Infinity, cache_read_input_tokens: 1, cache_creation_input_tokens: 2 })).toEqual({ input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 1, cache_creation_input_tokens: 2 })
 })

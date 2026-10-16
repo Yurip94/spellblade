@@ -3,11 +3,11 @@ import { DEFAULT_NAME, FAST_TURN_MS, LIMIT_WARN, LOG_MAX, MS, NIGHT_HOURS, STAGE
 import { bonusesFor, objectJosa, subjectJosa, topicJosa } from './lib/bonus.ts'
 import { skillOf } from './lib/skills.ts'
 import { addSum, allowedBonus, dayKey, entryKey, isEntry, isLogEntry, isProfile, parseEntryKey, sumByDay, sumEntries, sumXp, ZERO, type Entry, type LogEntry, type Sum } from './lib/ledger.ts'
-import { limitsOf, resetText, type Gauge } from './lib/limits.ts'
+import { limitsOf, liveGauge, resetText, type Gauge } from './lib/limits.ts'
 import { earnedTitles, longestStreak, statsOf, streakOf, TITLES, titleName, type Lifetime } from './lib/progression.ts'
 import { questReward, questStatus } from './lib/quests.ts'
 import { memoryRate, shortNum } from './lib/tokens.ts'
-import { equipmentAt, levelOf, progressOf, stageOf, weightOf, xpForLevel } from './lib/progress.ts'
+import { cleanUsage, equipmentAt, levelOf, progressOf, stageOf, weightOf, xpForLevel } from './lib/progress.ts'
 import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
 import { gridToRaster } from './lib/to-raster.ts'
 import { gridToSvg } from './lib/to-svg.ts'
@@ -130,12 +130,18 @@ function lifetime(): Lifetime {
   return { sum: totalSum(), questsDone: pastQuestsDone + done, questXp: pastQuestXp + todayQuestXp(), streak: streakOf(days, today), bestStreak: longestStreak(days) }
 }
 
+// 리셋 시각이 지난 한도는 가득 찬 것으로(다음 measure 가 올 때까지)
+function liveLimits(): { hp: Gauge | null; mp: Gauge | null } {
+  return { hp: liveGauge(limits.hp, clockNow), mp: liveGauge(limits.mp, clockNow) }
+}
+
 function mood(): Mood {
+  const l = liveLimits()
   return {
-    hpLeft: limits.hp?.left ?? null,
-    mpLeft: limits.mp?.left ?? null,
-    hpReset: resetText(limits.hp?.resetsAt ?? null, clockNow, tz),
-    mpReset: resetText(limits.mp?.resetsAt ?? null, clockNow, tz),
+    hpLeft: l.hp?.left ?? null,
+    mpLeft: l.mp?.left ?? null,
+    hpReset: resetText(l.hp?.resetsAt ?? null, clockNow, tz),
+    mpReset: resetText(l.mp?.resetsAt ?? null, clockNow, tz),
   }
 }
 
@@ -148,7 +154,8 @@ function demoNow(): ReturnType<typeof demoFrame> {
 
 // 마나(5시간 한도)가 경고선 아래면 영창 빛을 어둡게
 function magicDim(pose: string): boolean {
-  return (pose === 'cast1' || pose === 'cast2') && limits.mp !== null && limits.mp.left < LIMIT_WARN.mp
+  const mp = liveLimits().mp
+  return (pose === 'cast1' || pose === 'cast2') && mp !== null && mp.left < LIMIT_WARN.mp
 }
 
 function bannerNow(): string | null {
@@ -181,7 +188,7 @@ function snapshot(): CardView {
     todaySwings: t.swings,
     line: poseAt(activity, clockNow, m).line,
     log,
-    limits,
+    limits: liveLimits(),
     resets: { hp: m.hpReset ?? '', mp: m.mpReset ?? '' },
     quests: questStatus(today, t, sumXp(t)),
     streak: life.streak,
@@ -646,9 +653,11 @@ export const register: Register = (on, options) => {
   on('turn.step', async function* ($, e, next) {
     const result = yield* next(e)
     if (result.usage) {
-      const w = weightOf(result.usage)
+      // 칸이 비었거나 숫자가 아니면 0 으로 — NaN 이 그날 칸을 망가뜨리지 않게
+      const usage = cleanUsage(result.usage)
+      const w = weightOf(usage)
       turnW += w
-      await addUsage($, w, result.usage)
+      await addUsage($, w, usage)
       await afterGain($)
       $.ui.invalidate('ui.render')
     }

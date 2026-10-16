@@ -4,9 +4,10 @@ export function comma(n: number): string {
 
 // 토큰 숫자 줄이기: 999 · 1.2k · 12k · 3.4M
 export function shortNum(n: number): string {
-  const f = (v: number, unit: string) => `${v >= 10 ? Math.round(v) : Math.round(v * 10) / 10}${unit}`
-  if (n >= 1_000_000) return f(n / 1_000_000, 'M')
-  if (n >= 1_000) return f(n / 1_000, 'k')
+  const round = (v: number) => (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10)
+  // 반올림해서 1,000k 가 되면 M 으로
+  if (n >= 1_000_000 || round(n / 1_000) >= 1_000) return `${round(n / 1_000_000)}M`
+  if (n >= 1_000) return `${round(n / 1_000)}k`
   return String(Math.round(n))
 }
 

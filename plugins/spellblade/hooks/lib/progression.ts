@@ -1,3 +1,4 @@
+import { STAT_MAX } from './balance.ts'
 import { sumXp, type Sum } from './ledger.ts'
 
 // 연속 출석 · 칭호 · 능력치 — 모두 저장 칸 합계에서 계산한다(창이 여러 개여도 같다)
@@ -52,7 +53,7 @@ export function titleName(id: string): string | null {
   return TITLES.find(t => t.id === id)?.name ?? null
 }
 
-const stat = (v: number) => Math.max(1, Math.min(99, Math.floor(v)))
+const stat = (v: number) => Math.max(1, Math.min(STAT_MAX, Math.floor(v)))
 
 // 2차 설계 7장
 export function statsOf(l: Lifetime): { str: number; int: number; agi: number; luk: number } {

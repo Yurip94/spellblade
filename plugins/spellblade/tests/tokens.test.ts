@@ -14,3 +14,8 @@ test('기억력', async () => {
 test('W 식', async () => {
   expect(formulaLine({ in: 320, out: 2_140, cw: 12_400 })).toBe('W = 2,140 + 0.1 × (320 + 12,400) = 3,412')
 })
+
+test('반올림해서 1,000k 가 되면 M 으로', async () => {
+  expect(shortNum(999_999)).toBe('1M')
+  expect(shortNum(999_499)).toBe('999k')
+})

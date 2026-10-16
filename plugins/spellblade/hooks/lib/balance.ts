@@ -35,6 +35,9 @@ export const QUEST_REWARD = { easy: 30, normal: 50, hard: 80 } as const
 export const MAX_LEVEL = 60
 export const FAME_PER_XP = 1000
 
+// 능력치(힘 · 지력 · 민첩 · 행운)는 1 ~ STAT_MAX
+export const STAT_MAX = 99
+
 // 가중 토큰 W 1,000 = 1 XP
 export const XP_PER_W = 1000
 // 레벨 L 이 되는 누적 XP = LEVEL_BASE × (L − 1)²

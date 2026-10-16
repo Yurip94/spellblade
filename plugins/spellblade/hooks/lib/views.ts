@@ -1,5 +1,5 @@
 import { dimMagic, frameFor, silhouette } from './art.ts'
-import { STAGES, type StageId } from './balance.ts'
+import { MAX_LEVEL, STAGES, STAT_MAX, type StageId } from './balance.ts'
 import { ZERO, type LogEntry, type Sum } from './ledger.ts'
 import type { Gauge } from './limits.ts'
 import { equipmentAt, xpForLevel, type Progress } from './progress.ts'
@@ -79,7 +79,7 @@ const percent = (ratio: number) => Math.round(ratio * 100)
 
 // "Lv.17/60" · 만렙이면 "만렙 · 명성 ★12"
 export function levelLabel(p: Progress): string {
-  return p.isMax ? `만렙 · 명성 ★${comma(p.fame)}` : `Lv.${p.level}/60`
+  return p.isMax ? `만렙 · 명성 ★${comma(p.fame)}` : `Lv.${p.level}/${MAX_LEVEL}`
 }
 
 function gaugeText(icon: string, g: Gauge, reset: string, width: number): string {
@@ -187,7 +187,7 @@ function section(el: Els, title: string, rows: unknown[]): unknown {
 }
 
 function statBar(el: Els, icon: string, label: string, value: number): unknown {
-  return text(el, `  ${icon} ${label} ${String(value).padStart(2, ' ')} ${xpBar(value / 99, 12)}`)
+  return text(el, `  ${icon} ${label} ${String(value).padStart(2, ' ')} ${xpBar(value / STAT_MAX, 12)}`)
 }
 
 function statusTab(el: Els, v: CardView, road?: unknown[]): unknown[] {

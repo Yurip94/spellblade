@@ -9,6 +9,18 @@ export type Usage = {
 
 export type Progress = { xp: number; level: number; stage: StageDef; into: number; need: number; ratio: number; isMax: boolean; fame: number }
 
+const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0)
+
+// 사용량 칸이 비었거나 숫자가 아니면 0 으로 센다(NaN 하나가 그날 칸 전체를 망가뜨리지 않게)
+export function cleanUsage(u: Usage): Usage {
+  return {
+    input_tokens: count(u.input_tokens),
+    output_tokens: count(u.output_tokens),
+    cache_read_input_tokens: count(u.cache_read_input_tokens),
+    cache_creation_input_tokens: count(u.cache_creation_input_tokens),
+  }
+}
+
 // 토큰 마을과 같은 가중 토큰. 캐시 읽기는 대화가 길수록 부풀어서 뺀다.
 export function weightOf(u: Usage): number {
   return u.output_tokens + 0.1 * (u.input_tokens + u.cache_creation_input_tokens)

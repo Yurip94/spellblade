@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { dayKey, sumEntries } from '../hooks/lib/ledger.ts'
+import { dayKey, isEntry, sumEntries } from '../hooks/lib/ledger.ts'
 import { levelOf } from '../hooks/lib/progress.ts'
 
 // 스트림을 끝까지 읽고 결과를 돌려준다
@@ -928,4 +928,31 @@ test('기록 탭에 이 세션 줄', async ($, on) => {
   const m = await openCard($)
   await m.press({ key: 'tab3' })
   expect(await m.find({ text: /이 세션  출력 2k/ })).toBeTruthy()
+})
+
+// ---- 2.0.2: 미룬 작은 것 ----
+
+test('한도 창이 끝나면 다음 measure 전에도 회복한다', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON })
+  await start($)
+  const at = new Date(NOON + 30 * 60_000).toISOString()
+  await $.session.measure({ context: { window: 1_000_000, percent: 40 }, rateLimits: [{ kind: 'five_hour', percentUsed: 100, resetsAt: at }, { kind: 'seven_day', percentUsed: 30 }], changed: ['rateLimits'] } as any)
+  expect(await bandText($)).toMatch(/마나 소진 — 30분 뒤 회복/)
+  await clock.advance(31 * 60_000)
+  const t = await bandText($)
+  expect(t).not.toMatch(/마나 소진/)
+  expect(t).toMatch(/🔷 [▓░]+ 100%/)
+})
+
+test('토큰 수가 이상해도 그날 칸이 망가지지 않는다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON })
+  on('turn.step', async function* () {
+    return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: { input_tokens: NaN, output_tokens: 2_000, cache_read_input_tokens: undefined, cache_creation_input_tokens: 0, model: 'm' } as any }
+  })
+  await start($)
+  await oneTurn($)
+  const stored = seen.store.get(`d:${TODAY}:me`)
+  expect(isEntry(stored)).toBe(true)
+  expect(stored).toMatchObject({ w: 2_000, out: 2_000, in: 0, cr: 0 })
+  expect(await bandText($)).not.toMatch(/NaN/)
 })

@@ -6,7 +6,15 @@ type RateLimit = { kind: string; percentUsed: number; resetsAt?: string }
 function gauge(r: RateLimit | undefined): Gauge | null {
   if (!r || !Number.isFinite(r.percentUsed)) return null
   const at = r.resetsAt ? Date.parse(r.resetsAt) : NaN
-  return { left: Math.round(Math.max(0, Math.min(100, 100 - r.percentUsed))), resetsAt: Number.isFinite(at) ? at : null }
+  const raw = Math.max(0, Math.min(100, 100 - r.percentUsed))
+  // 조금이라도 남았으면 0% 로 내리지 않는다(0% 는 「소진」으로 앉아 쉰다)
+  const left = raw > 0 ? Math.max(1, Math.round(raw)) : 0
+  return { left, resetsAt: Number.isFinite(at) ? at : null }
+}
+
+// 리셋 시각이 지난 한도는 새 창이 시작된 것 — 다음 measure 가 올 때까지 가득 찬 것으로 본다
+export function liveGauge(g: Gauge | null, now: number): Gauge | null {
+  return g && g.resetsAt !== null && g.resetsAt <= now ? { left: 100, resetsAt: null } : g
 }
 
 export function limitsOf(rateLimits: readonly RateLimit[]): { hp: Gauge | null; mp: Gauge | null } {
