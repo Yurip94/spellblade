@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { addSum, allowedBonus, dayKey, entryKey, isEntry, parseEntryKey, sumEntries, sumXp, ZERO } from '../hooks/lib/ledger.ts'
+import { addSum, allowedBonus, dayKey, entryKey, isEntry, normalizeEntry, parseEntryKey, sumByDay, sumEntries, sumXp, ZERO } from '../hooks/lib/ledger.ts'
 
 test('dayKey 자정 경계(서울)', async () => {
   expect(dayKey(Date.UTC(2026, 9, 16, 14, 59), -540)).toBe('2026-10-16')
@@ -26,7 +26,7 @@ const rows: [string, unknown][] = [
 ]
 
 test('여러 세션 · 여러 날 합치기', async () => {
-  expect(sumEntries(rows)).toEqual({ w: 2600, bonus: 20, swings: 3 })
+  expect(sumEntries(rows)).toMatchObject({ w: 2600, bonus: 20, swings: 3 })
   expect(sumXp(sumEntries(rows))).toBe(22)
   expect(sumEntries(rows, { day: '2026-10-16' }).w).toBe(1100)
   expect(sumEntries(rows, { day: '2026-10-16', excludeSession: 'a' }).w).toBe(500)
@@ -48,11 +48,43 @@ test('망가진 값은 건너뛴다', async () => {
 })
 
 test('합 더하기', async () => {
-  expect(addSum({ w: 1, bonus: 2, swings: 3 }, { w: 10, bonus: 20, swings: 30 })).toEqual({ w: 11, bonus: 22, swings: 33 })
+  expect(addSum({ w: 1, bonus: 2, swings: 3, updatedAt: 0 }, { w: 10, bonus: 20, swings: 30, updatedAt: 0 })).toMatchObject({ w: 11, bonus: 22, swings: 33 })
 })
 
 test('보너스 하루 상한', async () => {
   expect(allowedBonus(290, 20)).toBe(10)
   expect(allowedBonus(300, 50)).toBe(0)
   expect(allowedBonus(0, 50)).toBe(50)
+})
+
+// ---- 2차: 새 기록 칸 ----
+
+test('1차 칸도 읽힌다', async () => {
+  expect(isEntry({ w: 1, bonus: 0, swings: 0, updatedAt: 1 })).toBe(true)
+})
+
+test('새 칸이 이상하면 버린다', async () => {
+  expect(isEntry({ w: 1, bonus: 0, swings: 0, updatedAt: 1, out: -1 })).toBe(false)
+  expect(isEntry({ w: 1, bonus: 0, swings: 0, updatedAt: 1, combo: 'x' })).toBe(false)
+})
+
+test('없는 칸은 0 으로', async () => {
+  expect(normalizeEntry({ w: 1, bonus: 2, swings: 3, updatedAt: 4 })).toMatchObject({ in: 0, out: 0, cw: 0, cr: 0, turns: 0, fast: 0, clean: 0, combo: 0, commits: 0, prs: 0, agents: 0, skills: 0, night: 0 })
+})
+
+test('합 · 최대 · 비트 합', async () => {
+  const s = addSum({ ...ZERO, out: 10, combo: 7, clean: 2, skills: 0b0011 }, { ...ZERO, out: 5, combo: 4, clean: 9, skills: 0b0100 })
+  expect([s.out, s.combo, s.clean, s.skills]).toEqual([15, 7, 9, 0b0111])
+})
+
+test('1차 칸도 새 칸 0 으로 합친다', async () => {
+  const s = sumEntries([['d:2026-10-16:a', e(5)], ['d:2026-10-16:b', { ...e(1), out: 7, combo: 3 }]])
+  expect([s.w, s.out, s.combo, s.turns]).toEqual([6, 7, 3, 0])
+})
+
+test('날짜별 합', async () => {
+  const m = sumByDay([['d:2026-10-15:a', e(1)], ['d:2026-10-16:a', e(2)], ['d:2026-10-16:b', e(3)], ['profile', { name: '렌' }]])
+  expect(m.get('2026-10-16')?.w).toBe(5)
+  expect(m.get('2026-10-15')?.w).toBe(1)
+  expect(m.size).toBe(2)
 })

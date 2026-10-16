@@ -3,11 +3,20 @@ import { xpOf } from './progress.ts'
 
 // 저장 칸: 세션마다 자기 칸(d:<날짜>:<세션>)에만 쓰고, 읽을 때 합친다
 
-export type Entry = { w: number; bonus: number; swings: number; updatedAt: number }
-export type Sum = { w: number; bonus: number; swings: number }
+// 1차 칸: w · bonus · swings · updatedAt. 2차에서 더한 칸은 없을 수 있다(없으면 0)
+const ADDED = ['in', 'out', 'cw', 'cr', 'turns', 'fast', 'clean', 'combo', 'commits', 'prs', 'agents', 'skills', 'night'] as const
+type Added = (typeof ADDED)[number]
+
+export type Entry = { w: number; bonus: number; swings: number; updatedAt: number } & Partial<Record<Added, number>>
+export type Sum = { w: number; bonus: number; swings: number } & Record<Added, number>
 export type SumFilter = { day?: string; notDay?: string; excludeSession?: string; onlySession?: string }
 
-export const ZERO: Sum = { w: 0, bonus: 0, swings: 0 }
+// 합칠 때: clean · combo 는 가장 큰 값, skills 는 비트 합, 나머지는 더한다
+const MAXED = new Set<keyof Sum>(['clean', 'combo'])
+const BITS = new Set<keyof Sum>(['skills'])
+const FIELDS: (keyof Sum)[] = ['w', 'bonus', 'swings', ...ADDED]
+
+export const ZERO: Sum = Object.fromEntries(FIELDS.map(k => [k, 0])) as Sum
 
 const KEY = /^d:(\d{4}-\d{2}-\d{2}):(.+)$/
 
@@ -30,11 +39,22 @@ const count = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >
 export function isEntry(v: unknown): v is Entry {
   if (typeof v !== 'object' || v === null) return false
   const o = v as Record<string, unknown>
-  return count(o.w) && count(o.bonus) && count(o.swings) && count(o.updatedAt)
+  if (!(count(o.w) && count(o.bonus) && count(o.swings) && count(o.updatedAt))) return false
+  return ADDED.every(k => o[k] === undefined || count(o[k]))
 }
 
-export function addSum(a: Sum, b: Sum): Sum {
-  return { w: a.w + b.w, bonus: a.bonus + b.bonus, swings: a.swings + b.swings }
+export function normalizeEntry(e: Entry): Required<Entry> {
+  return { ...ZERO, ...e, ...Object.fromEntries(ADDED.map(k => [k, e[k] ?? 0])) } as Required<Entry>
+}
+
+export function addSum(a: Sum | Entry, b: Sum | Entry): Sum {
+  const out = { ...ZERO }
+  for (const k of FIELDS) {
+    const x = a[k] ?? 0
+    const y = b[k] ?? 0
+    out[k] = MAXED.has(k) ? Math.max(x, y) : BITS.has(k) ? x | y : x + y
+  }
+  return out
 }
 
 export function sumEntries(rows: Iterable<readonly [string, unknown]>, filter: SumFilter = {}): Sum {
@@ -49,6 +69,17 @@ export function sumEntries(rows: Iterable<readonly [string, unknown]>, filter: S
     sum = addSum(sum, value)
   }
   return sum
+}
+
+// 날짜별 합 (지난 날 의뢰 보상 · 연속 출석 계산용)
+export function sumByDay(rows: Iterable<readonly [string, unknown]>): Map<string, Sum> {
+  const days = new Map<string, Sum>()
+  for (const [key, value] of rows) {
+    const k = parseEntryKey(key)
+    if (!k || !isEntry(value)) continue
+    days.set(k.day, addSum(days.get(k.day) ?? ZERO, value))
+  }
+  return days
 }
 
 export function sumXp(s: Sum): number {
