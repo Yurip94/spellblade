@@ -92,8 +92,8 @@ export function allowedBonus(todayBonus: number, amount: number): number {
 
 // ---- 이름 · 모험 일지 ----
 
-export type Profile = { name: string; createdAt: number; lastLevel: number }
-export type LogEntry = { at: number; level: number; stage: StageId }
+export type Profile = { name: string; createdAt: number; lastLevel: number; title?: string; titles?: string[] }
+export type LogEntry = { at: number; level: number; stage: StageId; kind?: 'level' | 'quest' | 'title'; text?: string }
 
 export function isProfile(v: unknown): v is Profile {
   if (typeof v !== 'object' || v === null) return false

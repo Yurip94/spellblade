@@ -14,7 +14,7 @@ type Seen = { commands: string[]; toasts: { text: string; timeoutMs?: number }[]
 
 // 키트에는 엔진이 없어서 플러그인이 부르는 $ 호출에 테스트가 맨 아래에서 답한다.
 // 테스트의 훅은 모두 첫 $ 호출 전에 걸어야 하므로: beneath → (테스트 훅) → start
-type BeneathOpts = { now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string; failSet?: boolean; beforeKeys?: () => Promise<void> }
+type BeneathOpts = { now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string; failSet?: boolean; beforeKeys?: () => Promise<void>; limits?: { kind: string; percentUsed: number; resetsAt?: string }[] }
 
 function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen } {
   const clock = mock.clock(on, { now: opts.now ?? Date.UTC(2026, 9, 16, 3, 0) })
@@ -41,6 +41,8 @@ function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen
   on('ui.open', async (_$, e) => { seen.opened.push(e.id); return { value: { isPlaced: true as const } } })
   on('turn.complete', async () => ({ text: '' }))
   on('session.end', async () => ({}))
+  on('session.usage', async () => ({ value: { startedAt: 0, context: { window: 1_000_000, percent: 10 }, rateLimits: opts.limits ?? [] } }))
+  on('session.measure', async (_$, e) => ({ changed: e.changed }))
   // 맨 아래 그림: 스피너는 단어 + suffix, 밴드는 다른 Mod 대신 opts.bottomBand
   on('ui.render', { component: 'Spinner' }, async ($, e) => {
     const { Text } = $.ui.resolve(e)
@@ -337,17 +339,17 @@ test('PR +50 은 하루 300 에서 멈춘다', async ($, on) => {
 })
 
 test('레벨업 토스트', async ($, on) => {
-  const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1 } } })
+  const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
   answerStep(on, 60_000)
   await start($)
   await oneTurn($)
   expect(seen.toasts.map(t => t.text)).toContain('⬆ 렌 Lv.2!')
   expect(seen.store.get('profile')).toMatchObject({ lastLevel: 2 })
-  expect(seen.store.get('log')).toMatchObject([{ level: 2, stage: 'trainee' }])
+  expect(seen.store.get('log')).toMatchObject([{ level: 2, stage: 'trainee', kind: 'level' }])
 })
 
 test('레벨업 토스트는 한 번만', async ($, on) => {
-  const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 2 } } })
+  const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 2, titles: ['first'] } } })
   answerStep(on, 60_000)
   await start($)
   await oneTurn($)
@@ -509,10 +511,126 @@ test('다시 불러오는 중에 들어온 경험치를 잃지 않는다', async
 })
 
 test('레벨업 때 다른 창이 남긴 일지를 지우지 않는다', async ($, on) => {
-  const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1 } } })
+  const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
   answerStep(on, 60_000)
   await start($)
   seen.store.set('log', [{ at: 5, level: 7, stage: 'swordsman' }])
   await oneTurn($)
   expect(seen.store.get('log')).toMatchObject([{ level: 2 }, { level: 7 }])
+})
+
+// ---- 2차 Task 8: 기록 v2 · 의뢰 · 칭호 · 한도 ----
+
+import { questsFor } from '../hooks/lib/quests.ts'
+
+let toolMode: 'ok' | 'error' = 'ok'
+function answerTools(on: On, gate?: Promise<void>) {
+  on('tool.call', async () => {
+    if (gate) await gate
+    return toolMode === 'ok' ? { result: 'ok' } : { result: 'boom', isError: true }
+  })
+}
+
+test('도구를 부르는 순간 베기가 보인다', async ($, on) => {
+  let release: () => void = () => {}
+  const gate = new Promise<void>(r => { release = r })
+  beneath(on, { now: NOON })
+  toolMode = 'ok'
+  answerTools(on, gate)
+  await start($)
+  const pending = $.tool.call({ tool: 'Bash', command: 'sleep 30' } as any)
+  await new Promise(r => setTimeout(r, 0))
+  expect(await bandText($)).toMatch(/폭풍 베기!/)
+  release()
+  await pending
+})
+
+test('콤보는 오류에서 끊긴다', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON })
+  answerTools(on)
+  await start($)
+  toolMode = 'ok'
+  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  expect(await bandText($)).toMatch(/×3 콤보/)
+  toolMode = 'error'
+  await $.tool.call({ tool: 'Bash', command: 'false' } as any)
+  await clock.advance(2_100) // 반격 문구가 지나간 뒤
+  toolMode = 'ok'
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  const t = await bandText($)
+  expect(t).toMatch(/탐색의 눈!/)
+  expect(t).not.toMatch(/콤보/)
+})
+
+test('API 오류로 끝난 턴은 승리가 아니다', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'error' })
+  expect(await bandText($)).not.toMatch(/승리/)
+})
+
+test('토큰 칸과 턴 기록이 저장된다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON })
+  on('turn.step', async function* () {
+    return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: { input_tokens: 320, output_tokens: 2_140, cache_read_input_tokens: 410_000, cache_creation_input_tokens: 12_400, model: 'm' } }
+  })
+  await start($)
+  await oneTurn($)
+  expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ in: 320, out: 2_140, cw: 12_400, cr: 410_000, turns: 1, fast: 1, clean: 1 })
+  expect(await bandText($)).toMatch(/✓ 승리 \+3 XP · 출력 2\.1k · 기억 97%/)
+})
+
+// 베기 의뢰(쉬움)가 나오는 날을 찾는다
+function swingDay(): string {
+  for (let d = 1; d <= 300; d++) {
+    const day = new Date(Date.UTC(2026, 0, d)).toISOString().slice(0, 10)
+    if (questsFor(day)[0].kind === 'swings') return day
+  }
+  throw new Error('베기 의뢰가 있는 날을 못 찾음')
+}
+
+test('의뢰를 끝내면 보상 XP 와 토스트', async ($, on) => {
+  const day = swingDay()
+  const [y, m, d] = day.split('-').map(Number)
+  const { seen } = beneath(on, { now: local(y, m - 1, d, 12, 0) })
+  toolMode = 'ok'
+  answerTools(on)
+  await start($)
+  for (let i = 0; i < 40; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  expect(seen.toasts.map(t => t.text)).toContain('📜 의뢰 완료! 베기 40번 +30 XP')
+  expect(await bandText($)).toMatch(/다음 레벨까지 30 XP/)
+  expect(seen.store.get(`q:${day}`)).toEqual([0])
+})
+
+test('두 창이 같은 의뢰를 끝내도 보상은 한 번', async ($, on) => {
+  const day = swingDay()
+  const [y, m, d] = day.split('-').map(Number)
+  const { seen } = beneath(on, { now: local(y, m - 1, d, 12, 0), store: { [`d:${day}:other`]: { ...entry(0), swings: 40 }, [`q:${day}`]: [0], profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: [] } } })
+  toolMode = 'ok'
+  answerTools(on)
+  await start($)
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  expect(seen.toasts.filter(t => t.text.startsWith('📜'))).toEqual([])
+  expect(await bandText($)).toMatch(/다음 레벨까지 30 XP/)
+})
+
+test('1차 저장소로 켜도 토스트가 쏟아지지 않는다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: { w: 2_000_000, bonus: 0, swings: 2_000, updatedAt: 1 }, profile: { name: '렌', createdAt: 1, lastLevel: 6 } } })
+  await start($)
+  expect(seen.toasts).toEqual([])
+  expect(seen.store.get('profile')).toMatchObject({ titles: expect.arrayContaining(['first', 'veteran']) })
+})
+
+test('한도를 읽어 마나가 바닥나면 쉰다', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  await $.session.measure({ context: { window: 1_000_000, percent: 40 }, rateLimits: [{ kind: 'five_hour', percentUsed: 100 }, { kind: 'seven_day', percentUsed: 30 }], changed: ['rateLimits'] } as any)
+  expect(await bandText($)).toMatch(/마나 소진/)
+})
+
+test('처음 켤 때 한도를 읽는다', async ($, on) => {
+  beneath(on, { now: NOON, limits: [{ kind: 'seven_day', percentUsed: 100 }] })
+  await start($)
+  expect(await bandText($)).toMatch(/기진맥진/)
 })

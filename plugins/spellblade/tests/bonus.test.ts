@@ -2,13 +2,13 @@ import { expect, test } from 'claude-code/testing'
 import { bonusesFor, subjectJosa } from '../hooks/lib/bonus.ts'
 
 test('커밋 명령을 알아본다', async () => {
-  expect(bonusesFor('git commit -m "x"')).toEqual([{ label: '전리품 획득!', amount: 20 }])
-  expect(bonusesFor('git add . && git commit -m x')).toEqual([{ label: '전리품 획득!', amount: 20 }])
-  expect(bonusesFor('git -c user.name=a commit -m x')).toEqual([{ label: '전리품 획득!', amount: 20 }])
+  expect(bonusesFor('git commit -m "x"')).toEqual([{ kind: 'commit', label: '전리품 획득!', amount: 20 }])
+  expect(bonusesFor('git add . && git commit -m x')).toEqual([{ kind: 'commit', label: '전리품 획득!', amount: 20 }])
+  expect(bonusesFor('git -c user.name=a commit -m x')).toEqual([{ kind: 'commit', label: '전리품 획득!', amount: 20 }])
 })
 
 test('PR 명령을 알아본다', async () => {
-  expect(bonusesFor('gh pr create --fill')).toEqual([{ label: '의뢰 완료!', amount: 50 }])
+  expect(bonusesFor('gh pr create --fill')).toEqual([{ kind: 'pr', label: '의뢰 완료!', amount: 50 }])
 })
 
 test('둘 다 있으면 둘 다', async () => {

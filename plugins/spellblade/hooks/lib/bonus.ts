@@ -1,6 +1,6 @@
 import { BONUS } from './balance.ts'
 
-export type Bonus = { label: string; amount: number }
+export type Bonus = { kind: 'commit' | 'pr'; label: string; amount: number }
 
 // 값을 받는 git 전역 옵션: 다음 토큰까지 건너뛴다
 const GIT_VALUE_OPTS = new Set(['-c', '-C', '--git-dir', '--work-tree', '--namespace'])
@@ -29,8 +29,8 @@ const isPrCreate = (tokens: string[]) => tokens[0] === 'gh' && tokens[1] === 'pr
 export function bonusesFor(command: string): Bonus[] {
   const segs = segments(command)
   const out: Bonus[] = []
-  if (segs.some(isGitCommit)) out.push({ label: '전리품 획득!', amount: BONUS.commit })
-  if (segs.some(isPrCreate)) out.push({ label: '의뢰 완료!', amount: BONUS.pr })
+  if (segs.some(isGitCommit)) out.push({ kind: 'commit', label: '전리품 획득!', amount: BONUS.commit })
+  if (segs.some(isPrCreate)) out.push({ kind: 'pr', label: '의뢰 완료!', amount: BONUS.pr })
   return out
 }
 
