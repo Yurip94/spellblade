@@ -1,12 +1,14 @@
 import { frameFor } from './art.ts'
 import { STAGES, type StageId } from './balance.ts'
+import type { LogEntry } from './ledger.ts'
 import type { Progress } from './progress.ts'
+
+export type { LogEntry }
 import { scaleGrid } from './sprites.ts'
 import type { Pose } from './status.ts'
 import { gridToRaster } from './to-raster.ts'
 import { gridToSvg } from './to-svg.ts'
 
-export type LogEntry = { at: number; level: number; stage: StageId }
 
 // 화면이 그리는 데 필요한 것 전부
 export type CardView = {

@@ -1,7 +1,8 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { DEFAULT_NAME, MS } from './lib/balance.ts'
-import { addSum, dayKey, entryKey, isEntry, parseEntryKey, sumEntries, sumXp, ZERO, type Entry, type Sum } from './lib/ledger.ts'
-import { progressOf, weightOf } from './lib/progress.ts'
+import { DEFAULT_NAME, LOG_MAX, MS } from './lib/balance.ts'
+import { bonusesFor, subjectJosa } from './lib/bonus.ts'
+import { addSum, allowedBonus, dayKey, entryKey, isEntry, isLogEntry, isProfile, parseEntryKey, sumEntries, sumXp, ZERO, type Entry, type Sum } from './lib/ledger.ts'
+import { levelOf, progressOf, stageOf, weightOf } from './lib/progress.ts'
 import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
 import { gridToRaster } from './lib/to-raster.ts'
 import { gridToSvg } from './lib/to-svg.ts'
@@ -104,6 +105,15 @@ async function load($: EngineInterface): Promise<void> {
   dirty.clear()
   const own = rows.find(([k]) => k === entryKey(today, sid))?.[1]
   if (isEntry(own)) mine.set(today, { ...own })
+  const profile = await $.store.get('profile')
+  if (isProfile(profile)) name = profile.name
+  else {
+    // 처음: 지금 레벨을 기준으로 둔다(지난 레벨을 한꺼번에 알리지 않으려고)
+    name = DEFAULT_NAME
+    await $.store.set('profile', { name, createdAt: now, lastLevel: levelOf(sumXp(totalSum())) })
+  }
+  const saved = await $.store.get('log')
+  log = Array.isArray(saved) ? saved.filter(isLogEntry).slice(0, LOG_MAX) : []
   sinceSync = 0
   clockNow = now
   activity = { ...activity, lastActiveAt: now }
@@ -161,6 +171,38 @@ async function addUsage($: EngineInterface, w: number): Promise<void> {
   dirty.add(day)
   clockNow = now
   activity = { ...activity, lastActiveAt: now }
+}
+
+// 경험치가 늘어난 뒤: 레벨이 올랐으면 알리고 일지에 남긴다. 다른 세션이 이미 알렸으면 조용히
+async function afterGain($: EngineInterface, beforeXp: number): Promise<void> {
+  const after = levelOf(sumXp(totalSum()))
+  if (after <= levelOf(beforeXp)) return
+  const stored = await $.store.get('profile')
+  const last = isProfile(stored) ? stored.lastLevel : levelOf(beforeXp)
+  if (after <= last) return
+  activity = withFlash(activity, 'levelup', clockNow)
+  $.ui.toast(`⬆ ${name} Lv.${after}!`)
+  const stage = stageOf(after)
+  if (stage.id !== stageOf(last).id) {
+    $.ui.toast(`🎉 ${name}${subjectJosa(name)} ${stage.name}${subjectJosa(stage.name)} 되었어요!`, { timeoutMs: MS.stageToast })
+  }
+  log = [{ at: clockNow, level: after, stage: stage.id }, ...log].slice(0, LOG_MAX)
+  await $.store.set('log', log)
+  const base = isProfile(stored) ? stored : { name, createdAt: clockNow, lastLevel: last }
+  await $.store.set('profile', { ...base, lastLevel: after })
+}
+
+// 성공한 Bash 의 커밋 · PR 보너스(하루 상한 안에서)
+function applyBonus(command: string, day: string): string {
+  let message = ''
+  for (const b of bonusesFor(command)) {
+    const got = allowedBonus(todaySum().bonus, b.amount)
+    if (got <= 0) continue
+    mineOn(day).bonus += got
+    dirty.add(day)
+    message = `${b.label} +${got} XP`
+  }
+  return message
 }
 
 // ---- 명령 ----
@@ -224,9 +266,11 @@ export const register: Register = (on, options) => {
   on('turn.step', async function* ($, e, next) {
     const result = yield* next(e)
     if (result.usage) {
+      const before = sumXp(totalSum())
       const w = weightOf(result.usage)
       turnW += w
       await addUsage($, w)
+      await afterGain($, before)
       $.ui.invalidate('ui.render')
     }
     return result
@@ -242,6 +286,29 @@ export const register: Register = (on, options) => {
     $.ui.invalidate('ui.render')
     return next(e)
   })
+
+  // 도구 한 번 = 베기 한 번. 오류면 반격, 성공한 커밋 · PR 은 보너스
+  on('tool.call', async ($, e, next) => {
+    const out = await next(e)
+    if (typeof out.deny === 'string') return out
+    const now = await $.clock.now()
+    clockNow = now
+    const day = dayKey(now, tz)
+    mineOn(day).swings += 1
+    dirty.add(day)
+    const main = !e.agentId
+    if (main) activity = withFlash(activity, 'slash', now, e.tool)
+    if (out.isError) {
+      if (main) activity = withFlash(activity, 'hit', now)
+    } else if (e.tool === 'Bash') {
+      const before = sumXp(totalSum())
+      const message = applyBonus(String((e as { command?: unknown }).command ?? ''), day)
+      if (message) activity = withFlash(activity, 'loot', now, message)
+      await afterGain($, before)
+    }
+    $.ui.invalidate('ui.render')
+    return out
+  }).catch(async ($, e, next) => (next.called ? undefined : next(e))) // 기록에 실패해도 도구 결과는 그대로
 
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     const suffix = e.props.suffix + spinnerSuffix(snapshot().progress, Math.floor(turnW / 1000))

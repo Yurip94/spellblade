@@ -256,3 +256,98 @@ test('턴이 끝나면 승리 문구', async ($, on) => {
   const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
   expect(await m.find({ text: /✓ 승리 \+34 XP/ })).toBeTruthy()
 })
+
+// ---- M3: 베기 · 반격 · 보너스 · 레벨업 알림 ----
+
+async function cardText($: Engine): Promise<string> {
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'Pane', requestId: 'spellblade', props: PANE() })
+  return JSON.stringify(await m.drawn())
+}
+
+test('도구 한 번에 베기 한 번', async ($, on) => {
+  beneath(on, { now: NOON })
+  on('tool.call', async () => ({ result: 'ok' }))
+  await start($)
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  expect(await bandText($)).toMatch(/베기! \(Read\)/)
+  expect(await cardText($)).toMatch(/오늘 베기 1번/)
+})
+
+test('거부된 도구는 베기가 아니다', async ($, on) => {
+  beneath(on, { now: NOON })
+  on('tool.call', async () => ({ deny: 'no' }))
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'rm -rf /' } as any)
+  expect(await cardText($)).toMatch(/오늘 베기 0번/)
+})
+
+test('오류면 반격당한다', async ($, on) => {
+  beneath(on, { now: NOON })
+  on('tool.call', async () => ({ result: 'boom', isError: true }))
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'false' } as any)
+  expect(await bandText($)).toMatch(/윽, 반격당했다/)
+})
+
+test('커밋 성공 +20', async ($, on) => {
+  beneath(on, { now: NOON })
+  on('tool.call', async () => ({ result: 'ok' }))
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'git add . && git commit -m x' } as any)
+  const text = await bandText($)
+  expect(text).toMatch(/다음 레벨까지 40 XP/)
+  expect(text).toMatch(/전리품 획득! \+20 XP/)
+})
+
+test('커밋이 실패하면 보너스 없음', async ($, on) => {
+  beneath(on, { now: NOON })
+  on('tool.call', async () => ({ result: 'nothing to commit', isError: true }))
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'git commit -m x' } as any)
+  expect(await bandText($)).toMatch(/다음 레벨까지 60 XP/)
+})
+
+test('PR +50 은 하루 300 에서 멈춘다', async ($, on) => {
+  beneath(on, { now: NOON, store: { [`d:${TODAY}:y`]: entry(0, 280) } })
+  on('tool.call', async () => ({ result: 'ok' }))
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'gh pr create --fill' } as any)
+  // 280 + 20 = 300 XP → Lv.3, 다음 레벨(540)까지 240
+  expect(await bandText($)).toMatch(/다음 레벨까지 240 XP/)
+})
+
+test('레벨업 토스트', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1 } } })
+  answerStep(on, 60_000)
+  await start($)
+  await oneTurn($)
+  expect(seen.toasts.map(t => t.text)).toContain('⬆ 렌 Lv.2!')
+  expect(seen.store.get('profile')).toMatchObject({ lastLevel: 2 })
+  expect(seen.store.get('log')).toMatchObject([{ level: 2, stage: 'trainee' }])
+})
+
+test('레벨업 토스트는 한 번만', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 2 } } })
+  answerStep(on, 60_000)
+  await start($)
+  await oneTurn($)
+  expect(seen.toasts.length).toBe(0)
+})
+
+test('승급 토스트', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(959_000) } })
+  answerStep(on, 1_000)
+  await start($)
+  await oneTurn($)
+  expect(seen.toasts).toContainEqual({ text: '🎉 렌이 검사가 되었어요!', timeoutMs: 5000 })
+})
+
+test('서브에이전트 턴 끝은 승리가 아니다', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await $.turn.complete({ turnId: 'a1', answer: '', durationMs: 1, isAborted: false, reason: 'answer', agentId: 'a' })
+  const text = await bandText($)
+  expect(text).not.toMatch(/승리/)
+  expect(text).toMatch(/마법을 두르는 중/)
+})

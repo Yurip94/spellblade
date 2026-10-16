@@ -1,4 +1,4 @@
-import { BONUS } from './balance.ts'
+import { BONUS, STAGES, type StageId } from './balance.ts'
 import { xpOf } from './progress.ts'
 
 // 저장 칸: 세션마다 자기 칸(d:<날짜>:<세션>)에만 쓰고, 읽을 때 합친다
@@ -57,4 +57,21 @@ export function sumXp(s: Sum): number {
 
 export function allowedBonus(todayBonus: number, amount: number): number {
   return Math.min(amount, Math.max(0, BONUS.dailyCap - todayBonus))
+}
+
+// ---- 이름 · 모험 일지 ----
+
+export type Profile = { name: string; createdAt: number; lastLevel: number }
+export type LogEntry = { at: number; level: number; stage: StageId }
+
+export function isProfile(v: unknown): v is Profile {
+  if (typeof v !== 'object' || v === null) return false
+  const o = v as Record<string, unknown>
+  return typeof o.name === 'string' && o.name.length > 0 && count(o.createdAt) && count(o.lastLevel)
+}
+
+export function isLogEntry(v: unknown): v is LogEntry {
+  if (typeof v !== 'object' || v === null) return false
+  const o = v as Record<string, unknown>
+  return count(o.at) && count(o.level) && STAGES.some(s => s.id === o.stage)
 }

@@ -56,3 +56,13 @@ test('끝난 높은 flash 는 낮은 것에 자리를 내준다', async () => {
   const a = withFlash(withFlash(A(), 'hit', 0), 'slash', 2500, 'Edit')
   expect(poseAt(a, 2600).pose).toBe('slash')
 })
+
+test('전리품 문구는 승리 자세로', async () => {
+  expect(poseAt(withFlash(A(), 'loot', 0, '전리품 획득! +20 XP'), 100)).toEqual({ pose: 'victory', line: '전리품 획득! +20 XP' })
+  expect(poseAt(withFlash(A(), 'loot', 0, 'x'), 2000).pose).not.toBe('victory')
+})
+
+test('전리품은 승리를 덮고 반격에는 밀린다', async () => {
+  expect(poseAt(withFlash(withFlash(A(), 'victory', 0, '1'), 'loot', 10, 'L'), 20).line).toBe('L')
+  expect(poseAt(withFlash(withFlash(A(), 'hit', 0), 'loot', 10, 'L'), 20).pose).toBe('hit')
+})
