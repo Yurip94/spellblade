@@ -1,6 +1,8 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
 import type { On } from 'claude-code'
+import { dayKey } from '../hooks/lib/ledger.ts'
+import { levelOf } from '../hooks/lib/progress.ts'
 
 // 스트림을 끝까지 읽고 결과를 돌려준다
 async function run<R>(stream: AsyncGenerator<unknown, R> & { result: Promise<R> }): Promise<R> {
@@ -8,14 +10,20 @@ async function run<R>(stream: AsyncGenerator<unknown, R> & { result: Promise<R> 
   return stream.result
 }
 
-type Seen = { commands: string[]; toasts: { text: string; timeoutMs?: number }[]; opened: string[] }
+type Seen = { commands: string[]; toasts: { text: string; timeoutMs?: number }[]; opened: string[]; store: Map<string, unknown> }
 
 // 키트에는 엔진이 없어서 플러그인이 부르는 $ 호출에 테스트가 맨 아래에서 답한다.
 // 테스트의 훅은 모두 첫 $ 호출 전에 걸어야 하므로: beneath → (테스트 훅) → start
-function beneath(on: On, opts: { now?: number; store?: Record<string, unknown>; sid?: string } = {}): { clock: MockClock; seen: Seen } {
+type BeneathOpts = { now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string }
+
+function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen } {
   const clock = mock.clock(on, { now: opts.now ?? Date.UTC(2026, 9, 16, 3, 0) })
-  mock.store(on, opts.store ?? {})
-  const seen: Seen = { commands: [], toasts: [], opened: [] }
+  const seen: Seen = { commands: [], toasts: [], opened: [], store: new Map(Object.entries(opts.store ?? {})) }
+  // 저장소는 테스트가 직접 들여다볼 수 있게 Map 으로 답한다(테스트의 $ 에는 store 가 없다)
+  on('store.get', async (_$, e) => ({ value: structuredClone(seen.store.get(e.key)) }))
+  on('store.set', async (_$, e) => { seen.store.set(e.key, structuredClone(e.value)); return { value: undefined } })
+  on('store.delete', async (_$, e) => { seen.store.delete(e.key); return { value: undefined } })
+  on('store.keys', async () => ({ value: [...seen.store.keys()] }))
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
   on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
   // $ 메서드(op 이벤트)의 답은 { value } 로 준다
@@ -24,6 +32,21 @@ function beneath(on: On, opts: { now?: number; store?: Record<string, unknown>; 
   on('command.register', async (_$, e) => { seen.commands.push(e.name); return { value: { command: e.name } } })
   on('ui.toast', async (_$, e) => { seen.toasts.push({ text: e.text, timeoutMs: e.timeoutMs }); return { value: undefined } })
   on('ui.open', async (_$, e) => { seen.opened.push(e.id); return { value: { isPlaced: true as const } } })
+  on('turn.complete', async () => ({ text: '' }))
+  on('session.end', async () => ({}))
+  // 맨 아래 그림: 스피너는 단어 + suffix, 밴드는 다른 Mod 대신 opts.bottomBand
+  on('ui.render', { component: 'Spinner' }, async ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return Text({ children: [e.props.word + e.props.suffix] })
+  })
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return Text({ children: [opts.bottomBand ?? ''] })
+  })
+  on('ui.render', { component: 'Pane' }, async ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return Text({ children: [''] })
+  })
   return { clock, seen }
 }
 
@@ -39,19 +62,10 @@ function answerStep(on: On, output: number) {
   })
 }
 
-// 맨 아래 스피너 그림을 테스트가 정한다(키트의 기본 그림에 기대지 않음)
-function plainSpinner(on: On) {
-  on('ui.render', { component: 'Spinner' }, async ($, e) => {
-    const { Text } = $.ui.resolve(e)
-    return Text({ children: [e.props.word + e.props.suffix] })
-  })
-}
-
 const SPINNER = { word: 'Forging', message: null, suffix: '…', mode: 'responding' as const }
 
 test('turn.step 사용량이 이번 턴 XP 로 쌓인다', async ($, on) => {
   beneath(on)
-  plainSpinner(on)
   answerStep(on, 34000)
   await start($)
   await $.turn.start({ text: 'hi', turnId: 't' })
@@ -62,7 +76,6 @@ test('turn.step 사용량이 이번 턴 XP 로 쌓인다', async ($, on) => {
 
 test('새 턴이 시작되면 이번 턴 XP 는 0 부터', async ($, on) => {
   beneath(on)
-  plainSpinner(on)
   answerStep(on, 34000)
   await start($)
   await $.turn.start({ text: 'a', turnId: 't' })
@@ -93,3 +106,79 @@ test('시험 페인: 데스크톱에는 Svg', async ($, on) => {
   const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'Pane', requestId: 'spellblade-probe', props: PANE() })
   expect(await m.find({ type: 'Svg' })).toBeTruthy()
 })
+
+// ---- M1: 저장 · 불러오기 · 밴드 한 줄 ----
+
+const TZ = new Date().getTimezoneOffset()
+// 현지 시각으로 날짜 · 시각을 만든다
+const local = (y: number, mo: number, d: number, h: number, mi: number) => Date.UTC(y, mo, d, h, mi) + TZ * 60_000
+const NOON = local(2026, 9, 16, 12, 0)
+const TODAY = dayKey(NOON, TZ)
+const YESTERDAY = dayKey(NOON - 86_400_000, TZ)
+const entry = (w: number, bonus = 0, swings = 0) => ({ w, bonus, swings, updatedAt: 1 })
+const BAND = (o = {}) => ({ hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: 100, scroll: { offset: 0, bodyRows: 12 }, view: {}, ...o })
+
+async function bandText($: Engine, surface: 'terminal' | 'desktop' = 'terminal', props = BAND()): Promise<string> {
+  const m = await $.ui.mount({ plugin: 'spellblade', surface, component: 'AbovePrompt', props })
+  return JSON.stringify(await m.drawn())
+}
+
+async function oneTurn($: Engine, turnId = 't') {
+  await $.turn.start({ text: 'hi', turnId })
+  await run($.turn.step({ turnId, index: 0, model: 'm', messageCount: 1 }))
+  await $.turn.complete({ turnId, answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+}
+
+test('다른 세션 몫과 어제 몫이 합계에 들어간다', async ($, on) => {
+  beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(960_000), [`d:${TODAY}:y`]: entry(500_000) } })
+  await start($)
+  const text = await bandText($)
+  expect(text).toMatch(new RegExp(`Lv\\.${levelOf(1460)} `))
+  expect(text).toMatch(/오늘 \+500 XP/)
+})
+
+test('두 세션이 서로 덮어쓰지 않는다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${TODAY}:y`]: entry(500_000) } })
+  answerStep(on, 34_000)
+  await start($)
+  await oneTurn($)
+  expect(seen.store.get(`d:${TODAY}:y`)).toEqual(entry(500_000))
+  expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ w: 34_000, bonus: 0, swings: 0 })
+})
+
+test('다시 불러오면 같은 세션 칸을 이어 쓴다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${TODAY}:me`]: entry(10_000) } })
+  answerStep(on, 1_000)
+  await start($)
+  await oneTurn($)
+  expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ w: 11_000 })
+})
+
+test('60초 안에 다른 세션 증가가 보인다', async ($, on) => {
+  const { clock, seen } = beneath(on, { now: NOON })
+  await start($)
+  seen.store.set(`d:${TODAY}:y`, entry(800_000))
+  await clock.advance(60_000)
+  expect(await bandText($)).toMatch(/오늘 \+800 XP/)
+})
+
+test('자정이 지나면 오늘 XP 가 새로 시작한다', async ($, on) => {
+  const { clock } = beneath(on, { now: local(2026, 9, 16, 23, 59), store: { [`d:${YESTERDAY}:x`]: entry(960_000) } })
+  answerStep(on, 34_000)
+  await start($)
+  await oneTurn($)
+  expect(await bandText($)).toMatch(/오늘 \+34 XP/)
+  await clock.advance(120_000)
+  const text = await bandText($)
+  expect(text).toMatch(/오늘 \+0 XP/)
+  expect(text).toMatch(new RegExp(`Lv\\.${levelOf(994)} `))
+})
+
+test('설문 중에는 밴드를 비켜 준다', async ($, on) => {
+  beneath(on, { now: NOON, bottomBand: '설문' })
+  await start($)
+  const text = await bandText($, 'terminal', BAND({ hasSurvey: true }))
+  expect(text).toMatch(/설문/)
+  expect(text).not.toMatch(/Lv\./)
+})
+
