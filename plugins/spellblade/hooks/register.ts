@@ -28,7 +28,16 @@ let clockNow = 0 // 마지막으로 읽은 시각 (그리기용)
 let lastDrawnKey = ''
 let demoStartedAt: number | null = null
 let syncing = false
-let sinceSync = 0
+let lastSyncAt = 0
+let lastSyncFailed = false
+// load · flush · refreshToday 를 한 줄로 세워 서로 끼어들지 않게 한다
+let chain: Promise<void> = Promise.resolve()
+
+function serial(job: () => Promise<void>): Promise<void> {
+  const run = chain.then(job)
+  chain = run.catch(() => {})
+  return run
+}
 
 const PANE = 'spellblade'
 
@@ -106,50 +115,89 @@ async function readAll($: EngineInterface): Promise<[string, unknown][]> {
   return rows
 }
 
-async function load($: EngineInterface): Promise<void> {
-  sid = await $.session.id()
+function load($: EngineInterface): Promise<void> {
+  return serial(() => loadNow($))
+}
+
+async function loadNow($: EngineInterface): Promise<void> {
+  // 읽기를 다 끝낸 뒤 상태를 한 번에 바꾼다(읽는 사이 들어온 경험치를 지우지 않게)
+  const newSid = await $.session.id()
   const now = await $.clock.now()
-  today = dayKey(now, tz)
+  const newToday = dayKey(now, tz)
   const rows = await readAll($)
+  const profile = await $.store.get('profile')
+  const saved = await $.store.get('log')
+
+  if (newSid !== sid) {
+    // 새 세션(/clear 등): 앞 세션 몫은 session.end 에서 이미 저장됐다
+    mine.clear()
+    dirty.clear()
+  }
+  sid = newSid
+  today = newToday
   const week = new Set(Array.from({ length: 6 }, (_, i) => dayKey(now - (i + 1) * 86_400_000, tz)))
   past = sumEntries(rows, { notDay: today })
   pastWeek = sumEntries(rows.filter(([k]) => week.has(parseEntryKey(k)?.day ?? '')))
   othersToday = sumEntries(rows, { day: today, excludeSession: sid })
-  mine.clear()
-  dirty.clear()
+  // 지난 날 몫은 저장이 끝났으면 메모리에서 뺀다. 오늘 몫은 메모리 쪽이 더 새것이다
+  for (const day of [...mine.keys()]) if (day !== today && !dirty.has(day)) mine.delete(day)
   const own = rows.find(([k]) => k === entryKey(today, sid))?.[1]
-  if (isEntry(own)) mine.set(today, { ...own })
-  const profile = await $.store.get('profile')
-  if (isProfile(profile)) name = profile.name
-  else {
-    // 처음: 지금 레벨을 기준으로 둔다(지난 레벨을 한꺼번에 알리지 않으려고)
-    name = DEFAULT_NAME
-    await $.store.set('profile', { name, createdAt: now, lastLevel: levelOf(sumXp(totalSum())) })
-  }
-  const saved = await $.store.get('log')
+  if (isEntry(own) && !mine.has(today)) mine.set(today, { ...own })
+  name = isProfile(profile) ? profile.name : DEFAULT_NAME
   log = Array.isArray(saved) ? saved.filter(isLogEntry).slice(0, LOG_MAX) : []
-  sinceSync = 0
+  lastSyncAt = now
   clockNow = now
   activity = { ...activity, lastActiveAt: now }
   $.ui.invalidate('ui.render')
+
+  if (!isProfile(profile)) {
+    // 처음: 지금 레벨을 기준으로 둔다(지난 레벨을 한꺼번에 알리지 않으려고)
+    await $.store.set('profile', { name, createdAt: now, lastLevel: levelOf(sumXp(totalSum())) })
+  }
 }
 
-async function flush($: EngineInterface): Promise<void> {
+function flush($: EngineInterface): Promise<void> {
+  return serial(() => flushNow($))
+}
+
+// 턴 끝 · 세션 끝에서: 실패해도 다음 주기에 다시 저장한다
+async function flushQuietly($: EngineInterface): Promise<void> {
+  try {
+    await flush($)
+  } catch {
+    // 표시는 남아 있다(dirty)
+  }
+}
+
+async function flushNow($: EngineInterface): Promise<void> {
   if (dirty.size === 0) return
   const now = await $.clock.now()
   for (const day of [...dirty]) {
+    dirty.delete(day) // 쓰는 사이 늘어난 몫은 다시 표시된다
     const e = mine.get(day)
-    if (e) await $.store.set(entryKey(day, sid), { ...e, updatedAt: now })
-    dirty.delete(day)
+    if (!e) continue
+    try {
+      await $.store.set(entryKey(day, sid), { ...e, updatedAt: now })
+    } catch (err) {
+      dirty.add(day)
+      throw err
+    }
   }
 }
 
-async function refreshToday($: EngineInterface): Promise<void> {
+function refreshToday($: EngineInterface): Promise<void> {
+  return serial(() => refreshNow($))
+}
+
+async function refreshNow($: EngineInterface): Promise<void> {
+  const day = today
+  const me = sid
   const keys = await $.store.keys()
   const rows: [string, unknown][] = []
   for (const key of keys) {
-    if (key.startsWith(`d:${today}:`) && key !== entryKey(today, sid)) rows.push([key, await $.store.get(key)])
+    if (key.startsWith(`d:${day}:`) && key !== entryKey(day, me)) rows.push([key, await $.store.get(key)])
   }
+  if (day !== today || me !== sid) return // 읽는 사이 날짜 · 세션이 바뀌었다
   othersToday = sumEntries(rows)
   $.ui.invalidate('ui.render')
 }
@@ -164,15 +212,19 @@ async function tick($: EngineInterface): Promise<void> {
     $.ui.invalidate('ui.render')
   }
   if (syncing) return
-  sinceSync += MS.tick
   const dayChanged = dayKey(now, tz) !== today
-  if (!dayChanged && sinceSync < MS.sync) return
+  const due = now - lastSyncAt >= MS.sync
+  // 날이 바뀌면 바로, 아니면 60초마다. 실패했으면 날이 바뀌었어도 60초 쉬었다가
+  if (!due && !(dayChanged && !lastSyncFailed)) return
   syncing = true
+  lastSyncAt = now
   try {
     await flush($)
     if (dayChanged) await load($)
     else await refreshToday($)
-    sinceSync = 0
+    lastSyncFailed = false
+  } catch {
+    lastSyncFailed = true
   } finally {
     syncing = false
   }
@@ -200,7 +252,10 @@ async function afterGain($: EngineInterface, beforeXp: number): Promise<void> {
   if (stage.id !== stageOf(last).id) {
     $.ui.toast(`🎉 ${name}${subjectJosa(name)} ${stage.name}${subjectJosa(stage.name)} 되었어요!`, { timeoutMs: MS.stageToast })
   }
-  log = [{ at: clockNow, level: after, stage: stage.id }, ...log].slice(0, LOG_MAX)
+  // 다른 창이 그사이 남긴 일지를 지우지 않도록 저장된 것을 다시 읽고 앞에 붙인다
+  const saved = await $.store.get('log')
+  const current = Array.isArray(saved) ? saved.filter(isLogEntry) : log
+  log = [{ at: clockNow, level: after, stage: stage.id }, ...current].slice(0, LOG_MAX)
   await $.store.set('log', log)
   const base = isProfile(stored) ? stored : { name, createdAt: clockNow, lastLevel: last }
   await $.store.set('profile', { ...base, lastLevel: after })
@@ -266,7 +321,7 @@ async function probeText($: EngineInterface): Promise<string> {
 
 function startTimer($: EngineInterface): void {
   $.clock.every(MS.tick, () => {
-    void tick($)
+    void tick($).catch(() => {})
   })
 }
 
@@ -291,11 +346,13 @@ export const register: Register = (on, options) => {
   }).catch(async ($, e, next) => next(e))
 
   on('session.end', async ($, e, next) => {
-    await flush($)
+    await flushQuietly($)
     return next(e)
   })
 
   on('turn.start', async ($, e, next) => {
+    // 서브에이전트 시작은 메인 턴 상태를 건드리지 않는다
+    if (e.agentId) return next(e)
     turnW = 0
     clockNow = await $.clock.now()
     activity = { ...activity, working: true, lastActiveAt: clockNow }
@@ -322,7 +379,7 @@ export const register: Register = (on, options) => {
       activity = { ...activity, working: false, lastActiveAt: clockNow }
       if (!e.isAborted) activity = withFlash(activity, 'victory', clockNow, String(Math.floor(turnW / 1000)))
     }
-    await flush($)
+    await flushQuietly($)
     $.ui.invalidate('ui.render')
     return next(e)
   })

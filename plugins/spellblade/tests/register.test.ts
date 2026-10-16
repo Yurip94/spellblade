@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { dayKey } from '../hooks/lib/ledger.ts'
+import { dayKey, sumEntries } from '../hooks/lib/ledger.ts'
 import { levelOf } from '../hooks/lib/progress.ts'
 
 // 스트림을 끝까지 읽고 결과를 돌려준다
@@ -10,20 +10,28 @@ async function run<R>(stream: AsyncGenerator<unknown, R> & { result: Promise<R> 
   return stream.result
 }
 
-type Seen = { commands: string[]; toasts: { text: string; timeoutMs?: number }[]; opened: string[]; store: Map<string, unknown> }
+type Seen = { commands: string[]; toasts: { text: string; timeoutMs?: number }[]; opened: string[]; store: Map<string, unknown>; setCalls: number }
 
 // 키트에는 엔진이 없어서 플러그인이 부르는 $ 호출에 테스트가 맨 아래에서 답한다.
 // 테스트의 훅은 모두 첫 $ 호출 전에 걸어야 하므로: beneath → (테스트 훅) → start
-type BeneathOpts = { now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string }
+type BeneathOpts = { now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string; failSet?: boolean; beforeKeys?: () => Promise<void> }
 
 function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen } {
   const clock = mock.clock(on, { now: opts.now ?? Date.UTC(2026, 9, 16, 3, 0) })
-  const seen: Seen = { commands: [], toasts: [], opened: [], store: new Map(Object.entries(opts.store ?? {})) }
+  const seen: Seen = { commands: [], toasts: [], opened: [], store: new Map(Object.entries(opts.store ?? {})), setCalls: 0 }
   // 저장소는 테스트가 직접 들여다볼 수 있게 Map 으로 답한다(테스트의 $ 에는 store 가 없다)
   on('store.get', async (_$, e) => ({ value: structuredClone(seen.store.get(e.key)) }))
-  on('store.set', async (_$, e) => { seen.store.set(e.key, structuredClone(e.value)); return { value: undefined } })
+  on('store.set', async (_$, e) => {
+    seen.setCalls++
+    if (opts.failSet && e.key.startsWith('d:')) throw new Error('저장소가 가득 찼다')
+    seen.store.set(e.key, structuredClone(e.value))
+    return { value: undefined }
+  })
   on('store.delete', async (_$, e) => { seen.store.delete(e.key); return { value: undefined } })
-  on('store.keys', async () => ({ value: [...seen.store.keys()] }))
+  on('store.keys', async () => {
+    if (opts.beforeKeys) await opts.beforeKeys()
+    return { value: [...seen.store.keys()] }
+  })
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
   on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
   // $ 메서드(op 이벤트)의 답은 { value } 로 준다
@@ -425,4 +433,76 @@ test('모르는 인자는 쓸 수 있는 명령을 알려 준다', async ($, on)
   beneath(on, { now: NOON })
   await start($)
   expect(await blade($, 'dance')).toMatch(/\/blade name <이름>/)
+})
+
+// ---- 최종 검토에서 나온 것 ----
+
+test('서브에이전트가 시작해도 이번 턴 XP 와 일하는 상태는 그대로', async ($, on) => {
+  beneath(on, { now: NOON })
+  answerStep(on, 34_000)
+  await start($)
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }))
+  await $.turn.start({ text: 'sub', turnId: 'a1', agentId: 'a' })
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'Spinner', props: SPINNER })
+  expect(await m.find({ text: /\+34xp/ })).toBeTruthy()
+})
+
+test('메인 턴이 끝난 뒤 시작한 서브에이전트는 일하는 상태를 켜지 않는다', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON })
+  await start($)
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  await $.turn.start({ text: 'bg', turnId: 'a1', agentId: 'a' })
+  await clock.advance(3_000) // 승리 문구가 지나간 뒤
+  expect(await bandText($)).not.toMatch(/마법을 두르는 중/)
+})
+
+test('저장이 실패해도 0.4초마다 다시 시도하지 않는다', async ($, on) => {
+  const { clock, seen } = beneath(on, { now: NOON, failSet: true })
+  answerStep(on, 1_000)
+  await start($)
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }))
+  const before = seen.setCalls
+  await clock.advance(120_000)
+  expect(seen.setCalls - before).toBeLessThanOrEqual(3)
+})
+
+test('다시 불러오는 중에 들어온 경험치를 잃지 않는다', async ($, on) => {
+  // 자정 재로드가 저장소 키를 읽는 순간 멈춰 두고, 그사이 응답 하나를 끝낸다
+  let release: () => void = () => {}
+  let hit: () => void = () => {}
+  const loading = new Promise<void>(r => { hit = r })
+  let gate = false
+  const { clock, seen } = beneath(on, {
+    now: local(2026, 9, 16, 23, 59),
+    store: { [`d:${YESTERDAY}:x`]: entry(1_000) },
+    beforeKeys: () => {
+      if (!gate) return Promise.resolve()
+      gate = false
+      hit()
+      return new Promise<void>(r => { release = r })
+    },
+  })
+  answerStep(on, 5_000)
+  await start($)
+  gate = true
+  const crossing = clock.advance(120_000)
+  await loading
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }))
+  release()
+  await crossing
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  expect(sumEntries([...seen.store], { onlySession: 'me' }).w).toBe(5_000)
+})
+
+test('레벨업 때 다른 창이 남긴 일지를 지우지 않는다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1 } } })
+  answerStep(on, 60_000)
+  await start($)
+  seen.store.set('log', [{ at: 5, level: 7, stage: 'swordsman' }])
+  await oneTurn($)
+  expect(seen.store.get('log')).toMatchObject([{ level: 2 }, { level: 7 }])
 })
