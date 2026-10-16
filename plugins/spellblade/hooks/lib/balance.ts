@@ -21,6 +21,9 @@ export const EQUIPMENT: Record<StageId, { weapon: string; armor: string; trinket
   saint: { weapon: '성검', armor: '빛의 갑옷', trinket: '등 뒤 마법진 · 떠 있는 검' },
 }
 
+// 오늘의 의뢰 보상 (쉬움 · 보통 · 어려움)
+export const QUEST_REWARD = { easy: 30, normal: 50, hard: 80 } as const
+
 // 만렙 · 명성: 만렙 뒤 XP 1,000 = 명성 ★1
 export const MAX_LEVEL = 60
 export const FAME_PER_XP = 1000
