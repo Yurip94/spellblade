@@ -1,4 +1,5 @@
 // 게임 숫자는 모두 여기 둔다. 바꾸면 tests/ 의 기대값도 같이 바꾼다.
+import type { SkillId } from './skills.ts'
 
 export type StageId = 'trainee' | 'swordsman' | 'spellblade' | 'knight' | 'saint'
 
@@ -71,4 +72,15 @@ export const MS = {
   sleepAfter: 1_800_000,
   sync: 60_000,
   tick: 400,
+  poof: 800,           // 쓰러진 몬스터 연기
+  popup: 1200,         // 데미지 · XP 숫자가 떠 있는 시간
+  monsterHit: 300,     // 맞아서 하얗게
+  monsterAttack: 600,  // 반격
+  breath: 800,         // 숨쉬기 한 박자
 } as const
+
+// 3차 전투: 몬스터 체력(장비 단계마다) · 도구 한 번의 데미지(단계마다 25% 씩 더) · 영창 데미지 = W ÷ 10
+export const MONSTER_HP = [300, 400, 540, 720, 960, 1280, 1700, 2250, 3000, 4000, 5300, 7000] as const
+export const SKILL_DAMAGE: Record<SkillId, number> = { eye: 18, track: 15, forge: 30, create: 36, storm: 40, ranged: 25, clone: 50, tactics: 12, summon: 28, slash: 20 }
+export const CAST_DAMAGE_DIV = 10
+export const POPUP_MAX = 3
