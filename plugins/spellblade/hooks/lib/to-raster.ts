@@ -1,13 +1,13 @@
 import { CLEAR, type Grid, type Palette } from './sprites.ts'
 
-const UPPER = 0x2580 // ▀
-const LOWER = 0x2584 // ▄
-const SPACE = 0x20
-const DEFAULT = 0x01000000 // 터미널 기본색
+export const UPPER = 0x2580 // ▀
+export const LOWER = 0x2584 // ▄
+export const SPACE = 0x20
+export const DEFAULT = 0x01000000 // 터미널 기본색
 
 export type RasterCells = { key: string; columns: number; rows: number; cells: string }
 
-function toBase64(bytes: Uint8Array): string {
+export function toBase64(bytes: Uint8Array): string {
   const native = bytes as Uint8Array & { toBase64?: () => string }
   if (typeof native.toBase64 === 'function') return native.toBase64()
   let s = ''
