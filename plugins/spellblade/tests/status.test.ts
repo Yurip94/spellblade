@@ -1,21 +1,22 @@
 import { expect, test } from 'claude-code/testing'
-import { demoFrame, poseAt, withFlash, type Activity } from '../hooks/lib/status.ts'
+import type { HeroPose } from '../hooks/lib/hero3.ts'
+import { currentFlash, demoFrame, legacyPose, poseAt, thenFlash, withFlash, type Activity } from '../hooks/lib/status.ts'
 
-const A = (o: Partial<Activity> = {}): Activity => ({ working: false, lastActiveAt: 0, flash: null, ...o })
+const A = (o: Partial<Activity> = {}): Activity => ({ working: false, lastActiveAt: 0, flash: null, queued: null, ...o })
 
 test('일하는 중에는 영창 두 프레임', async () => {
-  expect(poseAt(A({ working: true }), 0)).toEqual({ pose: 'cast1', line: '마법을 두르는 중…' })
+  expect(poseAt(A({ working: true }), 0)).toEqual({ pose: 'cast1', line: '마법을 두르는 중…', mode: 'battle' })
   expect(poseAt(A({ working: true }), 400).pose).toBe('cast2')
   expect(poseAt(A({ working: true }), 800).pose).toBe('cast1')
 })
 
 test('깜빡임', async () => {
-  expect(poseAt(A(), 3000 * 5 + 100)).toEqual({ pose: 'blink', line: '쉬는 중' })
-  expect(poseAt(A(), 3000 * 5 + 500)).toEqual({ pose: 'idle', line: '쉬는 중' })
+  expect(poseAt(A(), 3000 * 5 + 100)).toEqual({ pose: 'blink', line: '쉬는 중', mode: 'battle' })
+  expect(poseAt(A(), 3000 * 5 + 500)).toEqual({ pose: 'idle', line: '쉬는 중', mode: 'battle' })
 })
 
 test('30분 쉬면 잠', async () => {
-  expect(poseAt(A(), 1_800_000)).toEqual({ pose: 'sleep', line: 'Zzz' })
+  expect(poseAt(A(), 1_800_000)).toEqual({ pose: 'sleep', line: 'Zzz', mode: 'rest' })
   expect(poseAt(A(), 1_799_999).pose).not.toBe('sleep')
 })
 
@@ -25,7 +26,7 @@ test('일하는 중에는 오래돼도 자지 않는다', async () => {
 
 test('flash 가 끝나면 원래대로', async () => {
   const a = withFlash(A({ working: true }), 'victory', 1000, '+34 XP')
-  expect(poseAt(a, 2999)).toEqual({ pose: 'victory', line: '✓ 승리 +34 XP' })
+  expect(poseAt(a, 2999)).toEqual({ pose: 'victory', line: '✓ 승리 +34 XP', mode: 'battle' })
   expect(poseAt(a, 3000).pose).toBe('cast2')
 })
 
@@ -58,7 +59,7 @@ test('끝난 높은 flash 는 낮은 것에 자리를 내준다', async () => {
 })
 
 test('전리품 문구는 승리 자세로', async () => {
-  expect(poseAt(withFlash(A(), 'loot', 0, '전리품 획득! +20 XP'), 100)).toEqual({ pose: 'victory', line: '전리품 획득! +20 XP' })
+  expect(poseAt(withFlash(A(), 'loot', 0, '전리품 획득! +20 XP'), 100)).toEqual({ pose: 'victory', line: '전리품 획득! +20 XP', mode: 'battle' })
   expect(poseAt(withFlash(A(), 'loot', 0, 'x'), 2000).pose).not.toBe('victory')
 })
 
@@ -67,13 +68,14 @@ test('전리품은 승리를 덮고 반격에는 밀린다', async () => {
   expect(poseAt(withFlash(withFlash(A(), 'hit', 0), 'loot', 10, 'L'), 20).pose).toBe('hit')
 })
 
-test('데모: 5단계 × 6자세를 1초씩, 30초면 끝', async () => {
-  expect(demoFrame(0)).toMatchObject({ stage: 'trainee', pose: 'idle' })
-  expect(demoFrame(1000)).toMatchObject({ stage: 'trainee', pose: 'cast1' })
-  expect(demoFrame(2500)).toMatchObject({ stage: 'trainee', pose: 'slash' })
-  expect(demoFrame(6000)).toMatchObject({ stage: 'swordsman', pose: 'idle' })
-  expect(demoFrame(29_999)).toMatchObject({ stage: 'saint', pose: 'levelup' })
-  expect(demoFrame(30_000)).toBe(null)
+test('3차 데모는 12단계 × 3장면(0.8초씩, 28.8초면 끝)', async () => {
+  expect(demoFrame(0)).toMatchObject({ tier: 0, pose: 'slash', mode: 'battle' })
+  expect(demoFrame(800)).toMatchObject({ tier: 0, pose: 'castFail', mode: 'battle' })
+  expect(demoFrame(1600)).toMatchObject({ tier: 0, pose: 'sit', mode: 'rest' })
+  expect(demoFrame(800 * 3)).toMatchObject({ tier: 1, pose: 'slash' })
+  expect(demoFrame(28_799)).toMatchObject({ tier: 11, pose: 'sit' })
+  expect(demoFrame(0)?.line).toMatch(/\(데모\)/)
+  expect(demoFrame(28_800)).toBe(null)
   expect(demoFrame(-1)).toBe(null)
 })
 
@@ -89,15 +91,15 @@ test('승리 요약', async () => {
 })
 
 test('마나 0 이면 쉬는 자세', async () => {
-  expect(poseAt(A(), 100, { hpLeft: 50, mpLeft: 0, mpReset: '2:14' })).toEqual({ pose: 'sleep', line: '마나 소진 — 2:14 뒤 회복' })
+  expect(poseAt(A(), 100, { hpLeft: 50, mpLeft: 0, mpReset: '2:14' })).toEqual({ pose: 'sit', line: '마나 소진 — 2:14 뒤 회복', mode: 'rest' })
 })
 
 test('체력 0 이면 기진맥진', async () => {
-  expect(poseAt(A(), 100, { hpLeft: 0, mpLeft: 50, hpReset: '금 09:00' })).toEqual({ pose: 'sleep', line: '기진맥진 — 금 09:00 회복' })
+  expect(poseAt(A(), 100, { hpLeft: 0, mpLeft: 50, hpReset: '금 09:00' })).toEqual({ pose: 'sit', line: '기진맥진 — 금 09:00 회복', mode: 'rest' })
 })
 
 test('마나가 낮으면 바닥나 간다', async () => {
-  expect(poseAt(A({ working: true }), 0, { hpLeft: 80, mpLeft: 10 })).toEqual({ pose: 'cast1', line: '마나가 바닥나 간다' })
+  expect(poseAt(A({ working: true }), 0, { hpLeft: 80, mpLeft: 10 })).toEqual({ pose: 'cast1', line: '마나가 바닥나 간다', mode: 'battle' })
 })
 
 test('체력이 낮으면 숨이 차다', async () => {
@@ -105,9 +107,61 @@ test('체력이 낮으면 숨이 차다', async () => {
 })
 
 test('한도가 없으면 1차 그대로', async () => {
-  expect(poseAt(A(), 15_500, { hpLeft: null, mpLeft: null })).toEqual({ pose: 'idle', line: '쉬는 중' })
+  expect(poseAt(A(), 15_500, { hpLeft: null, mpLeft: null })).toEqual({ pose: 'idle', line: '쉬는 중', mode: 'battle' })
 })
 
 test('flash 가 한도 문구보다 먼저', async () => {
   expect(poseAt(withFlash(A(), 'hit', 0), 100, { hpLeft: 0, mpLeft: 0 }).pose).toBe('hit')
+})
+
+// ---- 3차: 마법 결과 · 예약 flash · 모닥불 ----
+
+test('마법 결과는 가장 낮은 순위', async () => {
+  expect(poseAt(withFlash(withFlash(A(), 'castFail', 0), 'slash', 100, '베기!'), 200).pose).toBe('slash')
+  expect(poseAt(withFlash(withFlash(A(), 'slash', 0, '베기!'), 'castFail', 100), 200).pose).toBe('slash')
+})
+
+test('마법 결과 문구 · 길이 0.7초', async () => {
+  expect(poseAt(withFlash(A(), 'castHit', 0), 100)).toEqual({ pose: 'castHit', line: '✦ 마법 적중!', mode: 'battle' })
+  expect(poseAt(withFlash(A(), 'castFail', 0), 699)).toEqual({ pose: 'castFail', line: '주문이 꼬였다… 처음부터 다시', mode: 'battle' })
+  expect(poseAt(withFlash(A(), 'castFail', 0), 700).pose).not.toBe('castFail')
+})
+
+test('승리는 마법 결과 뒤에 이어진다', async () => {
+  let a = withFlash(A(), 'castFail', 0)
+  a = thenFlash(a, 'victory', 100, '+3 XP')
+  expect([poseAt(a, 500).pose, poseAt(a, 800).pose]).toEqual(['castFail', 'victory'])
+  expect(poseAt(a, 800).line).toBe('✓ 승리 +3 XP')
+  expect(poseAt(a, 2_800)).toMatchObject({ mode: 'battle' })
+  expect(poseAt(a, 2_800).pose).not.toBe('victory')
+})
+
+test('살아 있는 flash 가 없으면 thenFlash 는 바로', async () => {
+  expect(currentFlash(thenFlash(A(), 'victory', 100, '+1 XP'), 100)).toMatchObject({ kind: 'victory', from: 100, until: 2100 })
+  expect(currentFlash(A(), 100)).toBe(null)
+})
+
+test('예약된 연출이 도는 중이면 그것을 지키고 뒤에 잇는다', async () => {
+  let a = thenFlash(withFlash(A(), 'castHit', 0), 'victory', 100, '1')
+  a = thenFlash(a, 'castFail', 1000)
+  expect([poseAt(a, 1500).pose, poseAt(a, 3000).pose, poseAt(a, 3500).pose]).toEqual(['victory', 'castFail', 'idle'])
+})
+
+test('예약된 승리도 낮은 연출에 덮이지 않는다', async () => {
+  const a = withFlash(thenFlash(withFlash(A(), 'castHit', 0), 'victory', 100, '1'), 'slash', 800, '베기!')
+  expect(poseAt(a, 900).pose).toBe('victory')
+})
+
+test('턴이 끝나고 2분 동안은 전투, 그 뒤 모닥불', async () => {
+  expect(poseAt(A(), 119_999).mode).toBe('battle')
+  expect(poseAt(A(), 120_000)).toEqual({ pose: 'sit', line: '모닥불 앞에서 쉬는 중', mode: 'rest' })
+  expect(poseAt(A(), 1_800_000)).toEqual({ pose: 'sleep', line: 'Zzz', mode: 'rest' })
+})
+
+test('마나 0 이면 일하는 중에도 모닥불', async () => {
+  expect(poseAt(A({ working: true }), 0, { hpLeft: 50, mpLeft: 0, mpReset: '2:14' })).toEqual({ pose: 'sit', line: '마나 소진 — 2:14 뒤 회복', mode: 'rest' })
+})
+
+test('2.x 그림 길 임시 자세(Task 8 에서 지운다)', async () => {
+  expect((['castHit', 'castFail', 'sit', 'slash', 'sleep'] as HeroPose[]).map(legacyPose)).toEqual(['cast1', 'cast1', 'sleep', 'slash', 'sleep'])
 })

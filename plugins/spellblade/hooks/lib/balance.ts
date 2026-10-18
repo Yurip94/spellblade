@@ -77,7 +77,14 @@ export const MS = {
   monsterHit: 300,     // 맞아서 하얗게
   monsterAttack: 600,  // 반격
   breath: 800,         // 숨쉬기 한 박자
+  castResult: 700,     // 마법 적중 · 캐스팅 실패 연출
 } as const
+
+// 3차 장면: 턴이 끝나고 2분 동안 다음 턴이 없으면 모닥불 휴식 · 캐시 재사용이 이 % 미만이면 캐스팅 실패(연출만)
+export const REST_AFTER_MS = 120_000
+export const CAST_FAIL_BELOW = 50
+// 도구 오류가 Esc 중단인지 턴 끝을 보고 가리는 유예(중단이면 반격이 아니다)
+export const ABORT_GRACE_MS = 1000
 
 // 3차 전투: 몬스터 체력(장비 단계마다) · 도구 한 번의 데미지(단계마다 25% 씩 더) · 영창 데미지 = W ÷ 10
 export const MONSTER_HP = [300, 400, 540, 720, 960, 1280, 1700, 2250, 3000, 4000, 5300, 7000] as const

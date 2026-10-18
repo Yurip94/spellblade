@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { DEFAULT_NAME, FAST_TURN_MS, LIMIT_WARN, LOG_MAX, MS, NIGHT_HOURS, STAGES } from './lib/balance.ts'
+import { DEFAULT_NAME, FAST_TURN_MS, LIMIT_WARN, LOG_MAX, MS, NIGHT_HOURS, TIER_LEVELS } from './lib/balance.ts'
 import { bonusesFor, objectJosa, subjectJosa, topicJosa } from './lib/bonus.ts'
 import { skillOf } from './lib/skills.ts'
 import { addSum, allowedBonus, dayKey, entryKey, isEntry, isLogEntry, isProfile, sumByDay, sumEntries, sumXp, ZERO, type Entry, type LogEntry, type Sum } from './lib/ledger.ts'
@@ -11,7 +11,7 @@ import { cleanUsage, equipmentAt, levelOf, progressOf, stageOf, weightOf, xpForL
 import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
 import { gridToRaster } from './lib/to-raster.ts'
 import { gridToSvg } from './lib/to-svg.ts'
-import { demoFrame, poseAt, withFlash, type Activity, type Mood } from './lib/status.ts'
+import { demoFrame, legacyPose, poseAt, withFlash, type Activity, type Mood } from './lib/status.ts'
 import { bandLineText, bandModeOf, bandPanel, baseView, card, heroArt, motionOf, spinnerSuffix, stageRoad, type CardView, type Els, type Tab } from './lib/views.ts'
 
 // ---- 모듈 상태 (session.start 의 load 가 매번 새로 채운다) ----
@@ -65,7 +65,7 @@ function announcing(job: () => Promise<void>): Promise<void> {
 }
 
 let turnW = 0
-let activity: Activity = { working: false, lastActiveAt: 0, flash: null }
+let activity: Activity = { working: false, lastActiveAt: 0, flash: null, queued: null }
 let clockNow = 0 // 마지막으로 읽은 시각 (그리기용)
 let lastDrawnKey = ''
 let demoStartedAt: number | null = null
@@ -207,8 +207,8 @@ function snapshot(): CardView {
   const t = todaySum()
   const demo = demoNow()
   if (demo) {
-    const stage = STAGES.find(s => s.id === demo.stage) ?? STAGES[0]
-    return { ...baseView(progressOf(xpForLevel(stage.minLevel))), name, line: demo.line, log, isDemo: true }
+    // 데모 단계의 첫 레벨(단계 0 은 Lv.1)
+    return { ...baseView(progressOf(xpForLevel(Math.max(1, demo.tier * TIER_LEVELS)))), name, line: demo.line, log, isDemo: true }
   }
   const progress = progressOf(totalXp())
   const life = lifetime()
@@ -241,10 +241,12 @@ function snapshot(): CardView {
 }
 
 // 지금 그릴 단계 · 자세. 바뀔 때만 다시 그리려고 열쇠도 같이
-function drawState(): { stage: CardView['progress']['stage']; pose: ReturnType<typeof poseAt>['pose']; frame: 0 | 1; key: string } {
+function drawState(): { stage: CardView['progress']['stage']; pose: ReturnType<typeof legacyPose>; frame: 0 | 1; key: string } {
   const v = snapshot()
   const demo = demoNow()
-  const { pose, line } = demo ?? poseAt(activity, clockNow, mood())
+  const scene = demo ?? poseAt(activity, clockNow, mood())
+  const pose = legacyPose(scene.pose)
+  const line = scene.line
   // 레벨업 빛기둥은 두 프레임을 번갈아
   const frame: 0 | 1 = pose === 'levelup' && Math.floor(clockNow / MS.castFrame) % 2 === 1 ? 1 : 0
   // 데스크톱 smooth 는 SVG 가 스스로 움직이므로 짝 자세가 바뀌어도 다시 그리지 않는다
@@ -635,7 +637,7 @@ export const register: Register = (on, options) => {
     const out = await next(e)
     surface = e.surface ?? 'terminal'
     turnW = 0
-    activity = { working: false, lastActiveAt: 0, flash: null }
+    activity = { working: false, lastActiveAt: 0, flash: null, queued: null }
     lastDrawnKey = ''
     await load($)
     try {
