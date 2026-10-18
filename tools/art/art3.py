@@ -2,8 +2,10 @@
 #   python3 tools/art/art3.py preview <폴더>   → 미리보기 PNG
 #   python3 tools/art/art3.py ts <art3.ts 경로> → plugins/spellblade/hooks/lib/art3.ts
 #   python3 tools/art/art3.py check            → 단계 1 · idle 이 시안 7판(v3-mock/maple_hero.py)과 점 하나까지 같은지
+# 몬스터 12종은 art3_monsters.py, 효과 · 글꼴 · 배경은 art3_scene.py 에 있다(이 파일이 모아 art3.ts 로 내보낸다).
 # 모두 이 프로젝트를 위해 새로 그린 그림이다(메이플스토리 그림 · 이름을 가져오지 않는다).
 import importlib.util, json, math, os, struct, sys, zlib
+import art3_monsters as AM, art3_scene as SC
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 W, H = 44, 48          # 영웅 칸
@@ -33,8 +35,8 @@ def shift(grid, dx, dy):
 
 # ---------- 음영(shade.ts 와 같은 규칙) ----------
 def ch_(v, s): return (v >> s) & 255
-def mix(c, t, k):
-    m = lambda s: round(ch_(c, s) + (ch_(t, s) - ch_(c, s)) * k)
+def mix(c, t, k):   # 반올림은 JS Math.round 과 같게(.5 는 올림) — TS 와 점 하나까지 같아야 한다
+    m = lambda s: math.floor(ch_(c, s) + (ch_(t, s) - ch_(c, s)) * k + 0.5)
     return (m(16) << 16) | (m(8) << 8) | m(0)
 def tones(b): return {'hi': mix(b, 0xfff4d8, 0.35), 'base': b, 'lo': mix(b, 0x1c1830, 0.38), 'out': mix(b, 0x0c0a14, 0.72)}
 
@@ -354,6 +356,20 @@ def hero_letters(tier, pose):
 def hero_rgb(tier, pose):
     return shade_rgb(hero_letters(tier, pose), tier_palette(tier))
 
+# ---------- 몬스터 · 장면 재료 ----------
+MONSTER_FRAMES = [AM.frames(fn) for fn in AM.MONSTERS]   # (프레임, 팔레트, 재질, 디테일)
+MONSTER_POSES = ['idle0', 'idle1', 'attack', 'hit']
+FX = SC.make_fx()
+BACKDROPS = SC.make_backdrops()
+
+def monster_rgb(t, pose):
+    if pose == 'hit':   # 맞으면 idle0 의 모든 색(테두리 포함)을 흰색 쪽으로 70%
+        return [[None if v is None else mix(v, 0xffffff, 0.7) for v in r] for r in monster_rgb(t, 'idle0')]
+    fr, pal, mat, det = MONSTER_FRAMES[t]
+    return shade_rgb(fr[pose], pal, mat, det)
+
+def flat_rgb(grid, pal): return [[None if ch == '.' else pal[ch] for ch in r] for r in grid]
+
 def fnv(rgb):
     s = '/'.join(''.join('.' if v is None else '%06x' % v for v in r) for r in rgb)
     h = 0x811c9dc5
@@ -389,6 +405,42 @@ PREVIEW_POSES = ['idle', 'blink', 'slash', 'cast1', 'castFail', 'hit', 'victory'
 def preview(out):
     cells = [hero_rgb(t, p) for t in range(12) for p in PREVIEW_POSES]
     sheet(os.path.join(out, 'preview-v3-hero.png'), cells, len(PREVIEW_POSES), W, H)
+    cells = [monster_rgb(t, p) for t in range(12) for p in MONSTER_POSES]
+    sheet(os.path.join(out, 'preview-v3-monsters.png'), cells, len(MONSTER_POSES), max(len(c[0]) for c in cells), max(len(c) for c in cells), scale=3)
+    sheet(os.path.join(out, 'preview-v3-scene.png'), scene_samples(), 2, SC.SW, SC.SH, scale=3, gap=10)
+
+# 장면 견본(실제 배치는 hooks/lib/scene.ts 가 한다): 마검사 칸은 (12, 8), 몬스터 칸 왼쪽은 57, 발끝은 풀 윗줄
+def scene_samples():
+    def backdrop(k): return [[BACKDROPS[k][1][ch] for ch in r] for r in BACKDROPS[k][0]]
+    def put(s, rgb, ox, oy):
+        for y, r in enumerate(rgb):
+            for x, v in enumerate(r):
+                if v is not None and 0 <= ox + x < SC.SW and 0 <= oy + y < SC.SH: s[oy + y][ox + x] = v
+    def fx(s, k, ox, oy): put(s, flat_rgb(*FX[k]), ox, oy)
+    def monster(s, t, pose='idle0', x=57):
+        m = monster_rgb(t, pose); put(s, m, x, SC.GROUND - (len(m) - 1))
+    def damage(s, text, ox, oy):
+        cells = {}
+        for i, ch in enumerate(text):
+            for y, r in enumerate(SC.DAMAGE[ch]):
+                for x, b in enumerate(r):
+                    if b == '#': cells[(ox + i * 7 + x + (i % 2), oy + y - (i % 2))] = y
+        for (x, y) in cells:
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    if (x + dx, y + dy) not in cells and 0 <= x + dx < SC.SW and 0 <= y + dy < SC.SH: s[y + dy][x + dx] = 0x6a1408
+        for (x, y), row in cells.items(): s[y][x] = 0xfff27a if row < 3 else 0xffc23a if row < 6 else 0xff8a1a
+    out = []
+    for t in (0, 5, 11):                                     # 낮 전투: 베기 · 칼 궤적 · 데미지
+        s = backdrop('day'); put(s, hero_rgb(t, 'slash'), 12, 8); monster(s, t, 'hit' if t == 5 else 'idle0')
+        fx(s, 'slashArc', 50, 33); damage(s, '128', 66, 6); out.append(s)
+    s = backdrop('night'); put(s, hero_rgb(3, 'sit'), 12, 8)          # 밤 모닥불 휴식
+    fx(s, 'fire1', 64, SC.GROUND - 24); fx(s, 'zzz', 48, 6); out.append(s)
+    s = backdrop('day'); put(s, hero_rgb(2, 'castFail'), 12, 8)       # 캐스팅 실패: 연기 · 땀
+    fx(s, 'smoke', 50, 24); fx(s, 'sweat', 46, 16); monster(s, 3, 'attack'); out.append(s)
+    s = backdrop('day'); fx(s, 'pillar1', 22, SC.GROUND - 59)          # 승리 · 레벨업 빛기둥 · 몬스터 연기
+    put(s, hero_rgb(6, 'victory'), 12, 8); fx(s, 'poof2', 62, 30); out.append(s)
+    return out
 
 # ---------- 시안 7판과 같은지 ----------
 def check():
@@ -438,7 +490,47 @@ import type { Grid, Palette } from './sprites.ts'
         o.append(f"  {{ palette: {ts_pal(tier_palette(t))}, accessories: [{', '.join(repr(a) for a in accs)}], blade: '{kind}' }},")
     o.append("]\n")
     o.append(f"// 단계 1 · idle 의 Python 렌더 해시(시안 7판과 같음 — art3.py check). TS 음영이 같은지 테스트가 본다")
-    o.append(f"export const HERO_CHECK = {{ tier: 1, pose: 'idle', hash: '{fnv(hero_rgb(1, 'idle'))}' }} as const")
+    o.append(f"export const HERO_CHECK = {{ tier: 1, pose: 'idle', hash: '{fnv(hero_rgb(1, 'idle'))}' }} as const\n")
+
+    o.append("// ---------- 몬스터 12종(5레벨마다 바뀐다, 모두 왼쪽을 본다) ----------")
+    o.append("// 재질: Q 몸 · O 배 · 얼굴 · 윗면 · U 껍데기 · 갓 · 날개 · 이끼 · V 발 · 뿔 · 뿌리 · 소용돌이")
+    o.append("// 디테일: E 눈 · w 반짝 · i 눈동자 · b 볼 · m 입 · t 이빨 · n 코 · 금 · q 무늬 · 비늘 · y 노란 눈 · r 붉은 눈빛 · c 하늘 눈빛 · g 금장식")
+    o.append("// 칸 여백은 왼쪽 3(공격 때 2점 내민다) · 위 1 · 오른쪽 1, 발은 맨 아래 줄(유령만 아래 4줄이 비어 떠 있다)")
+    o.append("export const MONSTER_ART: readonly { frames: { idle0: Grid; idle1: Grid; attack: Grid }; palette: Palette; materials: string; details: string }[] = [")
+    for t, (fr, pal, mat, det) in enumerate(MONSTER_FRAMES):
+        o.append(f"  {{ // {t} {AM.MONSTERS[t].__name__}")
+        o.append(f"    materials: '{mat}', details: '{det}',")
+        o.append(f"    palette: {ts_pal(pal)},")
+        o.append("    frames: {")
+        for k in ('idle0', 'idle1', 'attack'): o.append(f"      {k}: {ts_grid(fr[k], '      ')},")
+        o.append("    },")
+        o.append("  },")
+    o.append("]\n")
+    o.append("// 단계마다 idle0 의 Python 렌더 해시. TS 음영이 미리보기와 같은지 테스트가 본다")
+    o.append("export const MONSTER_CHECK: readonly string[] = [" + ', '.join(f"'{fnv(monster_rgb(t, 'idle0'))}'" for t in range(len(MONSTER_FRAMES))) + "]\n")
+
+    o.append("// ---------- 효과(음영 없이 글자마다 색) ----------")
+    o.append("// 칼 궤적은 원의 중심이 (0, 13), 모닥불은 맨 아래 줄이 땅 줄, 빛기둥은 마검사 뒤에 그린다")
+    o.append("export type FxId = " + " | ".join(f"'{k}'" for k in FX))
+    o.append("export const FX: Record<FxId, { grid: Grid; palette: Palette }> = {")
+    for k, (g, pal) in FX.items(): o.append(f"  {k}: {{ palette: {ts_pal(pal)}, grid: {ts_grid(g, '  ')} }},")
+    o.append("}\n")
+
+    o.append("// ---------- 글꼴('#' 칸만 있는 모양, 색은 장면이 칠한다) ----------")
+    o.append("// damage 6 × 9 데미지 숫자 · small 5 × 7(「+N XP」) · big 7 × 9(「LEVEL UP」)")
+    o.append("export const GLYPHS: { damage: Record<string, Grid>; small: Record<string, Grid>; big: Record<string, Grid> } = {")
+    for name, d in (('damage', SC.DAMAGE), ('small', SC.SMALL), ('big', SC.BIG)):
+        o.append(f"  {name}: {{")
+        for k, g in d.items(): o.append(f"    {json.dumps(k) if not k.isalpha() else k}: [{', '.join(repr(r) for r in g)}],")
+        o.append("  },")
+    o.append("}\n")
+
+    o.append("// ---------- 배경 160 × 64(시안 7판, 밤은 별 · 초승달) — 투명 칸이 없다 ----------")
+    o.append("export const BACKDROPS: Record<'day' | 'night', { grid: Grid; palette: Palette }> = {")
+    for k in ('day', 'night'):
+        g, pal = BACKDROPS[k]
+        o.append(f"  {k}: {{ palette: {ts_pal(pal)}, grid: {ts_grid(g, '  ')} }},")
+    o.append("}")
     open(path, 'w', encoding='utf-8').write('\n'.join(o) + '\n')
 
 if __name__ == '__main__':
