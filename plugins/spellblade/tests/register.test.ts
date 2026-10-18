@@ -1071,3 +1071,113 @@ test('어제 몫이 늦게 저장돼도 60초 안에 합계에 들어간다', as
   await clock.advance(60_000)
   expect(await bandText($)).toMatch(new RegExp(`Lv\\.${levelOf(960)}(?!\\d)`))
 })
+
+// ---- 3차 Task 1: 2.0.2 검토에서 넘긴 것 ----
+
+test('자정에 걸친 도구 호출은 어제 콤보를 새 날 칸에 적지 않는다', async ($, on) => {
+  const START = local(2026, 9, 16, 23, 59) + 58_000
+  const { clock, seen } = beneath(on, { now: START })
+  let calls = 0
+  let release: () => void = () => {}
+  const gate = new Promise<void>(r => { release = r })
+  on('tool.call', async () => {
+    calls++
+    if (calls === 4) await gate
+    return { result: 'ok' }
+  })
+  await start($)
+  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  const pending = $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  await clock.advance(5_000) // 자정을 넘긴다
+  release()
+  await pending
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  expect(seen.store.get(`d:${dayKey(START + 5_000, TZ)}:me`)).toMatchObject({ combo: 1 })
+})
+
+test('병렬 호출에서 최고 콤보는 성공으로 끝난 것만 센다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON })
+  let release: () => void = () => {}
+  const gate = new Promise<void>(r => { release = r })
+  on('tool.call', async (_$, e: any) => {
+    if (e.tool === 'Bash') { await gate; return { result: 'boom', isError: true } }
+    return { result: 'ok' }
+  })
+  await start($)
+  const bash = $.tool.call({ tool: 'Bash', command: 'false' } as any)
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  release()
+  await bash
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ combo: 1 })
+})
+
+test('자정 뒤 호출이 없으면 의뢰 탭 콤보는 0', async ($, on) => {
+  const { clock } = beneath(on, { now: local(2026, 9, 16, 23, 59) })
+  toolMode = 'ok'
+  answerTools(on)
+  await start($)
+  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  await clock.advance(120_000)
+  const m = await openCard($)
+  await m.press({ key: 'tab2' })
+  expect(await m.find({ text: /💥 콤보 ×0 / })).toBeTruthy()
+})
+
+test('/clear 뒤 배낭 용량은 다음 measure 전까지 비운다', async ($, on) => {
+  const opts: BeneathOpts = { now: NOON }
+  beneath(on, opts)
+  await start($)
+  await $.session.measure({ context: { window: 1_000_000, percent: 85 }, rateLimits: [], changed: ['context'] } as any)
+  expect(await bandText($)).toMatch(/배낭 용량 85%/)
+  opts.sid = 'next'
+  await $.classic.SessionStart({ source: 'clear' })
+  expect(await bandText($)).not.toMatch(/배낭 용량 85%/)
+})
+
+test('쉬는 동안에도 리셋 남은 시간이 바뀐다', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON, limits: [{ kind: 'seven_day', percentUsed: 30, resetsAt: new Date(NOON + 2 * 3_600_000).toISOString() }] })
+  await start($)
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  await clock.advance(31 * 60_000) // 30분 넘게 쉬어 자는 자세(자세 · 문구가 더 바뀌지 않음)
+  expect(await m.find({ text: /1:29/ })).toBeTruthy()
+  await clock.advance(10 * 60_000)
+  expect(await m.find({ text: /1:19/ })).toBeTruthy()
+})
+
+test('도구 없이 자정을 넘긴 턴은 「반격 없이 연속」을 새로 센다', async ($, on) => {
+  const NIGHT = local(2026, 9, 16, 23, 58)
+  const { clock, seen } = beneath(on, { now: NIGHT })
+  await start($)
+  const answered = async () => {
+    await $.turn.start({ text: 'hi', turnId: 't' })
+    await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  }
+  await answered()
+  await answered()
+  await clock.advance(180_000)
+  await answered()
+  expect(seen.store.get(`d:${dayKey(NIGHT + 180_000, TZ)}:me`)).toMatchObject({ clean: 1 })
+})
+
+test('어제 키가 지워지면 합계에서도 빠진다', async ($, on) => {
+  const { clock, seen } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(960_000) } })
+  await start($)
+  expect(await bandText($)).toMatch(new RegExp(`Lv\\.${levelOf(960)}(?!\\d)`))
+  seen.store.delete(`d:${YESTERDAY}:x`)
+  await clock.advance(60_000)
+  expect(await bandText($)).toMatch(/Lv\.1(?!\d)/)
+})
+
+test('/clear 뒤 기록 탭 「이번 턴」은 비어 있다', async ($, on) => {
+  const opts: BeneathOpts = { now: NOON }
+  beneath(on, opts)
+  answerStep(on, 2_000)
+  await start($)
+  await oneTurn($)
+  opts.sid = 'next'
+  await $.classic.SessionStart({ source: 'clear' })
+  const m = await openCard($)
+  await m.press({ key: 'tab3' })
+  expect(await m.find({ text: /이번 턴 기록이 아직 없어요/ })).toBeTruthy()
+})

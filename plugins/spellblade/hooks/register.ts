@@ -28,7 +28,8 @@ let name = DEFAULT_NAME
 let log: LogEntry[] = []
 
 // 2차: 전투 기록 · 한도 · 의뢰 · 칭호
-let combo = 0 // 메인 대화에서 오류 없이 이어진 도구 호출
+let combo = 0 // 메인 대화에서 오류 없이 이어진 도구 호출(부르는 순간 센다 — ×N 표시)
+let streak = 0 // 성공으로 끝난 메인 도구 호출의 연속(끝난 순간 센다 — 최고 콤보 기록)
 let cleanRun = 0 // 반격 없이 이어진 턴
 let runDay = '' // combo · cleanRun 이 쌓이는 날 — 날이 바뀌면 새로 센다
 let pastDays = new Map<string, Sum>() // 오늘이 아닌 날마다의 합계(모든 세션)
@@ -111,6 +112,7 @@ function runOn(day: string): void {
   if (day === runDay) return
   runDay = day
   combo = 0
+  streak = 0
   cleanRun = 0
 }
 
@@ -226,7 +228,7 @@ function snapshot(): CardView {
     quests: questStatus(today, t, sumXp(t)),
     streak: life.streak,
     context: contextPercent,
-    combo,
+    combo: runDay === today ? combo : 0, // 자정을 넘긴 뒤 아직 부른 도구가 없으면 어제 콤보를 보이지 않는다
     bestCombo: t.combo,
     banner: bannerNow(),
     turn: activity.working ? { ...turnTokens, xp: Math.floor(turnW / 1000) } : lastTurn,
@@ -278,8 +280,10 @@ async function loadNow($: EngineInterface): Promise<void> {
     mine.clear()
     dirty.clear()
     combo = 0
+    streak = 0
     cleanRun = 0
     lastTurn = null
+    contextPercent = null // 새 대화의 배낭 용량은 다음 measure 가 알려 준다
     sessionW = 0
     sessionTokens = { in: 0, out: 0, cw: 0, cr: 0 }
   }
@@ -585,6 +589,7 @@ async function reset($: EngineInterface): Promise<string> {
   mine.clear()
   dirty.clear()
   combo = 0
+  streak = 0
   cleanRun = 0
   lastTurn = null
   sessionW = 0
@@ -747,12 +752,17 @@ export const register: Register = (on, options) => {
     if (out.isError) {
       if (main) {
         combo = 0
+        streak = 0
         turnHadError = true
         activity = withFlash(activity, 'hit', now)
       }
     } else {
-      // 최고 콤보는 성공한 호출까지만 센다
-      if (main) entry.combo = Math.max(entry.combo ?? 0, combo)
+      // 최고 콤보는 성공으로 끝난 호출의 연속으로 센다(끝난 날 기준 — 자정 · 병렬 호출에도 어긋나지 않게)
+      if (main) {
+        runOn(day)
+        streak += 1
+        entry.combo = Math.max(entry.combo ?? 0, streak)
+      }
       if (e.tool === 'Bash') {
         const message = applyBonus(String((e as { command?: unknown }).command ?? ''), day)
         if (message) activity = withFlash(activity, 'loot', now, message)
