@@ -1,20 +1,20 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { DEFAULT_NAME, FAST_TURN_MS, LIMIT_WARN, LOG_MAX, MS, NIGHT_HOURS, TIER_LEVELS } from './lib/balance.ts'
+import { ABORT_GRACE_MS, CAST_FAIL_BELOW, DEFAULT_NAME, FAST_TURN_MS, LIMIT_WARN, LOG_MAX, MS, NIGHT_HOURS, TIER_LEVELS } from './lib/balance.ts'
 import { bonusesFor, objectJosa, subjectJosa, topicJosa } from './lib/bonus.ts'
 import { skillOf } from './lib/skills.ts'
 import { addSum, allowedBonus, dayKey, entryKey, isEntry, isLogEntry, isProfile, sumByDay, sumEntries, sumXp, ZERO, type Entry, type LogEntry, type Sum } from './lib/ledger.ts'
 import { limitsOf, liveGauge, resetText, type Gauge } from './lib/limits.ts'
 import { earnedTitles, longestStreak, statsOf, streakOf, TITLES, titleName, type Lifetime } from './lib/progression.ts'
 import { questReward, questStatus } from './lib/quests.ts'
-import { shortNum } from './lib/tokens.ts'
+import { cacheReuse, shortNum } from './lib/tokens.ts'
 import { cleanUsage, equipmentAt, levelOf, progressOf, stageOf, tierOf, weightOf, xpForLevel } from './lib/progress.ts'
 import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
 import { gridToRaster } from './lib/to-raster.ts'
 import { gridToSvg } from './lib/to-svg.ts'
-import { newBattle, type Battle } from './lib/battle.ts'
+import { castDamage, newBattle, retaliate, settle, skillDamage, strike, type Battle } from './lib/battle.ts'
 import { MONSTERS } from './lib/monsters.ts'
 import { sceneGrid, sceneKey, type SceneInput } from './lib/scene.ts'
-import { demoFrame, poseAt, withFlash, type Activity, type Mood } from './lib/status.ts'
+import { demoFrame, poseAt, thenFlash, withFlash, type Activity, type Mood } from './lib/status.ts'
 import { bandLineText, bandModeOf, bandPanel, baseView, card, sceneArt, spinnerSuffix, stageRoad, type CardView, type Els, type Tab } from './lib/views.ts'
 
 // ---- 모듈 상태 (session.start 의 load 가 매번 새로 채운다) ----
@@ -52,7 +52,8 @@ let lastTurn: CardView['turn'] = null
 let banner: { text: string; until: number } | null = null
 let tab: Tab = 1 // 카드 창 탭
 let surface = 'terminal' // session.start 가 알려 준 표면(데스크톱에선 null 일 수 있다)
-let battle: Battle | null = null // 지금 싸우는 몬스터(불러올 때 지금 장비 단계로 만든다)
+let battle: Battle | null = null // 지금 싸우는 몬스터(새 세션이면 지금 장비 단계로 새로 만든다)
+let pendingHits: number[] = [] // 메인 도구 오류 시각 — Esc 중단인지 가린 뒤(1초 · 다음 호출 · 턴 끝) 반격으로
 let levelSeen = 0 // 이 창이 이미 본 레벨 — 레벨업 알림을 한 번만 내려고 먼저 차지한다
 let questsFrom = '' // 이 날부터 의뢰 보상을 센다(2.0 을 처음 켠 날 — 지난날 소급 없음)
 let sessionW = 0
@@ -301,6 +302,8 @@ async function loadNow($: EngineInterface): Promise<void> {
     contextPercent = null // 새 대화의 배낭 용량은 다음 measure 가 알려 준다
     sessionW = 0
     sessionTokens = { in: 0, out: 0, cw: 0, cr: 0 }
+    pendingHits = []
+    battle = null // 아래에서 지금 장비 단계의 몬스터로 새로
   }
   sid = newSid
   today = newToday
@@ -325,7 +328,7 @@ async function loadNow($: EngineInterface): Promise<void> {
 
   // 이 창이 켜지기 전에 오른 레벨은 다시 알리지 않는다
   const levelNow = levelOf(totalXp())
-  battle = newBattle(tierOf(levelNow), totalXp())
+  if (!battle) battle = newBattle(tierOf(levelNow), totalXp())
   levelSeen = Math.max(isProfile(profile) ? profile.lastLevel : 0, levelNow)
 
   // 처음 켤 때는 이미 이룬 것을 조용히 기록만 한다(지난 레벨 · 칭호 · 의뢰를 한꺼번에 알리지 않으려고)
@@ -402,10 +405,28 @@ async function refreshNow($: EngineInterface): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
-// 400ms 마다: 60초마다 저장 · 남의 몫 다시 읽기, 날짜가 바뀌면 전부 다시
+// 미뤄 둔 도구 오류를 반격으로: 콤보 · 연속이 끊기고, 마검사는 맞고, 몬스터는 친다.
+// due 가 없으면 모두(다음 호출 · 턴 끝이면 Esc 중단이 아니다), 있으면 유예가 지난 것만
+function applyHits(now: number, due?: (at: number) => boolean): void {
+  const ready = due ? pendingHits.filter(due) : pendingHits
+  if (!ready.length) return
+  pendingHits = due ? pendingHits.filter(at => !due(at)) : []
+  combo = 0
+  streak = 0
+  turnHadError = true
+  activity = withFlash(activity, 'hit', now)
+  if (battle) battle = retaliate(battle, now)
+}
+
+// 400ms 마다: 유예가 지난 오류를 반격으로 · 쓰러진 몬스터 정리, 60초마다 저장 · 남의 몫 다시 읽기, 날짜가 바뀌면 전부 다시
 async function tick($: EngineInterface): Promise<void> {
   const now = await $.clock.now()
   clockNow = now
+  applyHits(now, at => now - at >= ABORT_GRACE_MS)
+  if (battle) {
+    const xp = totalXp()
+    battle = settle(battle, now, tierOf(levelOf(xp)), xp)
+  }
   const key = sceneState().key
   if (key !== lastDrawnKey) {
     lastDrawnKey = key
@@ -616,6 +637,8 @@ async function reset($: EngineInterface): Promise<string> {
   titleOrder = []
   chosenTitle = null
   banner = null
+  pendingHits = []
+  battle = null // 몬스터도 처음(슬라임)부터 — load 가 새로 만든다
   await load($)
   return `처음부터 다시 시작해요. 수련생 ${name}, 잘 부탁해요!`
 }
@@ -704,6 +727,16 @@ export const register: Register = (on, options) => {
       const w = weightOf(usage)
       turnW += w
       await addUsage($, w, usage)
+      // 메인 대화의 단계가 끝나면: 캐시 재사용이 낮으면 캐스팅 실패(연출만, 손해 없음), 아니면 마법 적중 — W ÷ 10 데미지.
+      // 서브에이전트 단계는 XP 만(새 서브에이전트의 첫 단계는 캐시가 비어 실패가 연달아 뜨기 쉽다)
+      if (!e.agentId) {
+        const reuse = cacheReuse({ in: usage.input_tokens, cw: usage.cache_creation_input_tokens, cr: usage.cache_read_input_tokens })
+        if (reuse !== null && reuse < CAST_FAIL_BELOW) activity = withFlash(activity, 'castFail', clockNow)
+        else {
+          activity = withFlash(activity, 'castHit', clockNow)
+          if (battle) battle = strike(battle, castDamage(w), clockNow)
+        }
+      }
       await afterGain($)
       $.ui.invalidate('ui.render')
     }
@@ -713,6 +746,9 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     if (!e.agentId) {
       clockNow = await $.clock.now()
+      // Esc 로 끊긴 턴의 도구 오류는 중단이 낸 것이라 반격이 아니다. 아니면 지금 반격으로(「반격 없이 연속」 판정보다 먼저)
+      if (e.isAborted) pendingHits = []
+      else applyHits(clockNow)
       activity = { ...activity, working: false, lastActiveAt: clockNow }
       // 턴 기록(턴 수 · 빠른 턴 · 새벽 · 반격 없이 연속)과 승리는 정상 답변으로 끝난 턴만 —
       // Esc 로 끊은 턴 · API 오류 · 거절로 의뢰를 채우지 못하게. 반격은 어떻게 끝났든 연속을 끊는다
@@ -729,7 +765,8 @@ export const register: Register = (on, options) => {
         if (hour >= NIGHT_HOURS[0] && hour < NIGHT_HOURS[1]) entry.night = (entry.night ?? 0) + 1
         entry.clean = Math.max(entry.clean ?? 0, cleanRun)
         dirty.add(day)
-        activity = withFlash(activity, 'victory', clockNow, victorySummary())
+        // 마지막 단계의 적중 · 실패 0.7초가 끝난 뒤에 승리(덮지 않게 이어 붙인다)
+        activity = thenFlash(activity, 'victory', clockNow, victorySummary())
       }
       lastTurn = { ...turnTokens, xp: Math.floor(turnW / 1000) }
       await afterGain($)
@@ -744,11 +781,13 @@ export const register: Register = (on, options) => {
     const main = !e.agentId
     const skill = skillOf(e.tool)
     if (main) {
-      // 부르는 순간 베기 — 기술 이름과 콤보
+      // 부르는 순간 베기 — 기술 이름과 콤보, 몬스터에 데미지. 다음 도구를 불렀으면 앞의 오류는 Esc 중단이 아니다
       clockNow = await $.clock.now()
+      applyHits(clockNow)
       runOn(dayKey(clockNow, tz))
       combo += 1
       activity = withFlash(activity, 'slash', clockNow, `${skill.name}!${combo >= 3 ? ` ×${combo} 콤보` : ''}`)
+      if (battle) battle = strike(battle, skillDamage(skill.id, battle.tier), clockNow)
       $.ui.invalidate('ui.render')
     }
     const out = await next(e)
@@ -765,15 +804,12 @@ export const register: Register = (on, options) => {
     if (skill.id === 'clone') entry.agents = (entry.agents ?? 0) + 1
     dirty.add(day)
     if (out.isError) {
-      if (main) {
-        combo = 0
-        streak = 0
-        turnHadError = true
-        activity = withFlash(activity, 'hit', now)
-      }
+      // 반격은 Esc 중단인지 가린 뒤에(1초 · 다음 호출 · 턴 끝 — applyHits)
+      if (main) pendingHits.push(now)
     } else {
       // 최고 콤보는 성공으로 끝난 호출의 연속으로 센다(끝난 날 기준 — 자정 · 병렬 호출에도 어긋나지 않게)
       if (main) {
+        applyHits(now) // 성공한 호출이 뒤따랐으면 앞의 오류는 진짜 반격
         runOn(day)
         streak += 1
         entry.combo = Math.max(entry.combo ?? 0, streak)

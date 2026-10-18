@@ -281,10 +281,11 @@ test('일하는 동안 영창 프레임이 바뀐다', async ($, on) => {
 })
 
 test('턴이 끝나면 승리 문구', async ($, on) => {
-  beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
+  const { clock } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
   answerStep(on, 34_000)
   await start($)
   await oneTurn($)
+  await clock.advance(800) // 마지막 단계의 마법 적중 0.7초 뒤에 승리
   const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
   expect(await m.find({ text: /✓ 승리 \+34 XP/ })).toBeTruthy()
 })
@@ -316,10 +317,11 @@ test('거부된 도구는 베기가 아니다', async ($, on) => {
 })
 
 test('오류면 반격당한다', async ($, on) => {
-  beneath(on, { now: NOON })
+  const { clock } = beneath(on, { now: NOON })
   on('tool.call', async () => ({ result: 'boom', isError: true }))
   await start($)
   await $.tool.call({ tool: 'Bash', command: 'false' } as any)
+  await clock.advance(1_200) // Esc 중단인지 1초 기다린 뒤
   expect(await bandText($)).toMatch(/윽, 반격당했다/)
 })
 
@@ -566,7 +568,7 @@ test('콤보는 오류에서 끊긴다', async ($, on) => {
   expect(await bandText($)).toMatch(/×3 콤보/)
   toolMode = 'error'
   await $.tool.call({ tool: 'Bash', command: 'false' } as any)
-  await clock.advance(2_100) // 반격 문구가 지나간 뒤
+  await clock.advance(3_300) // 1초 유예 뒤 반격 문구(2초)가 지나간 뒤
   toolMode = 'ok'
   await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
   const t = await bandText($)
@@ -583,13 +585,14 @@ test('API 오류로 끝난 턴은 승리가 아니다', async ($, on) => {
 })
 
 test('토큰 칸과 턴 기록이 저장된다', async ($, on) => {
-  const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
+  const { clock, seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
   on('turn.step', async function* () {
     return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: { input_tokens: 320, output_tokens: 2_140, cache_read_input_tokens: 410_000, cache_creation_input_tokens: 12_400, model: 'm' } }
   })
   await start($)
   await oneTurn($)
   expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ in: 320, out: 2_140, cw: 12_400, cr: 410_000, turns: 1, fast: 1, clean: 1 })
+  await clock.advance(800) // 마법 적중 0.7초 뒤에 승리
   const t = await bandText($)
   expect(t).toMatch(/✓ 승리 \+3 XP · 출력 2\.1k/)
   expect(t).not.toMatch(/기억|캐시/)
@@ -1028,7 +1031,7 @@ test('중단 · 오류 · 거절로 끝난 턴은 턴 기록에 넣지 않는다
 })
 
 test('반격이 있었던 중단 턴은 「반격 없이 연속」을 끊는다', async ($, on) => {
-  const { seen } = beneath(on, { now: NOON })
+  const { clock, seen } = beneath(on, { now: NOON })
   answerTools(on)
   await start($)
   const answered = async () => {
@@ -1041,6 +1044,7 @@ test('반격이 있었던 중단 턴은 「반격 없이 연속」을 끊는다'
   toolMode = 'error'
   await $.tool.call({ tool: 'Bash', command: 'false' } as any)
   toolMode = 'ok'
+  await clock.advance(1_200) // 1초가 지나 반격이 된 오류(Esc 가 낸 오류가 아님)
   await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: true, reason: 'aborted' })
   await answered()
   await answered()
@@ -1201,4 +1205,147 @@ test('/clear 뒤 기록 탭 「이번 턴」은 비어 있다', async ($, on) =>
   const m = await openCard($)
   await m.press({ key: 'tab3' })
   expect(await m.find({ text: /이번 턴 기록이 아직 없어요/ })).toBeTruthy()
+})
+
+// ---- 3차 Task 9: 전투 · 영창 · 휴식 ----
+
+function answerUsage(on: On, u: Partial<ReturnType<typeof usage>>) {
+  on('turn.step', async function* () {
+    return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: { ...usage(0), ...u } }
+  })
+}
+
+test('도구를 부르면 몬스터 체력이 준다', async ($, on) => {
+  beneath(on, { now: NOON })
+  toolMode = 'ok'
+  answerTools(on)
+  await start($)
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  expect(await cardText($)).toMatch(/🟢 슬라임 HP 282\/300/)
+})
+
+test('몬스터를 잡으면 연기 뒤 새 슬라임', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON })
+  toolMode = 'ok'
+  answerTools(on)
+  await start($)
+  for (let i = 0; i < 17; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  expect(await cardText($)).toMatch(/HP 0\/300/)
+  await clock.advance(1_300)
+  expect(await cardText($)).toMatch(/🟢 슬라임 HP 300\/300/)
+})
+
+test('캐시 재사용이 낮으면 캐스팅 실패', async ($, on) => {
+  beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } }) // 첫 칭호 알림이 덮지 않게
+  answerUsage(on, { input_tokens: 10_000, cache_read_input_tokens: 100 })
+  await start($)
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }))
+  expect(await bandText($)).toMatch(/주문이 꼬였다/)
+  expect(await cardText($)).toMatch(/HP 300\/300/)
+})
+
+test('캐시 재사용이 높으면 마법 적중', async ($, on) => {
+  beneath(on, { now: NOON })
+  answerUsage(on, { output_tokens: 500, input_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 50_000 })
+  await start($)
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }))
+  expect(await bandText($)).toMatch(/마법 적중/)
+  expect(await cardText($)).toMatch(/HP 249\/300/)
+})
+
+test('서브에이전트 단계는 연출 없이 XP 만', async ($, on) => {
+  beneath(on, { now: NOON })
+  answerUsage(on, { output_tokens: 34_000, input_tokens: 10_000 })
+  await start($)
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1, agentId: 'a' } as any))
+  const band = await bandText($)
+  expect(band).not.toMatch(/마법 적중|주문이 꼬였다/)
+  expect(band).toMatch(/오늘 \+35 XP/)
+})
+
+test('Esc 로 끊긴 도구는 반격이 아니다', async ($, on) => {
+  const { clock, seen } = beneath(on, { now: NOON })
+  toolMode = 'ok'
+  answerTools(on)
+  answerStep(on, 1_000)
+  await start($)
+  await oneTurn($)
+  await $.turn.start({ text: 'b', turnId: 't2' })
+  toolMode = 'error'
+  await $.tool.call({ tool: 'Bash', command: 'sleep 9' } as any)
+  await clock.advance(500)
+  await $.turn.complete({ turnId: 't2', answer: '', durationMs: 1, isAborted: true, reason: 'aborted' })
+  await clock.advance(1_500)
+  expect(await bandText($)).not.toMatch(/반격/)
+  toolMode = 'ok'
+  await oneTurn($)
+  expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ clean: 2 })
+})
+
+test('그냥 오류는 1초 뒤 반격', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON })
+  toolMode = 'error'
+  answerTools(on)
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'false' } as any)
+  expect(await bandText($)).not.toMatch(/반격당했다/)
+  await clock.advance(1_200)
+  expect(await bandText($)).toMatch(/윽, 반격당했다/)
+})
+
+test('레벨 5 가 되면 다음 몬스터는 달팽이', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(959_000) } })
+  toolMode = 'ok'
+  answerTools(on)
+  answerStep(on, 1_000)
+  await start($)
+  await oneTurn($)
+  expect(await cardText($)).toMatch(/🟢 슬라임/)
+  for (let i = 0; i < 17; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  await clock.advance(1_300)
+  expect(await cardText($)).toMatch(/🐌 달팽이 HP 400\/400/)
+})
+
+test('높은 레벨로 켜면 그 단계 몬스터로 시작한다', async ($, on) => {
+  beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(77_000_000) } })
+  await start($)
+  expect(await cardText($)).toMatch(/🗿 골렘 HP 2,250\/2,250/)
+})
+
+test('턴이 끝나고 2분 뒤 모닥불', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON })
+  answerStep(on, 1_000)
+  await start($)
+  await oneTurn($)
+  await clock.advance(119_000)
+  expect(await bandText($)).not.toMatch(/모닥불/)
+  await clock.advance(2_000)
+  expect(await bandText($)).toMatch(/모닥불 앞에서 쉬는 중/)
+})
+
+test('아무 일 없으면 다시 그리지 않는다', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON })
+  let n = 0
+  on('ui.invalidate', async () => { n++; return { value: undefined } })
+  await start($)
+  await clock.advance(121_000) // 모닥불
+  n = 0
+  await clock.advance(10_000)
+  expect(n).toBeLessThanOrEqual(13) // 모닥불 흔들림(0.8초)만
+  await clock.advance(31 * 60_000) // 잠들면 모닥불도 멈춘다
+  n = 0
+  await clock.advance(10_000)
+  expect(n).toBe(0)
+})
+
+test('reset 하면 몬스터도 처음부터', async ($, on) => {
+  beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(77_000_000) } })
+  answerAsk(on, '처음부터')
+  await start($)
+  expect(await cardText($)).toMatch(/🗿 골렘/)
+  await blade($, 'reset')
+  expect(await cardText($)).toMatch(/🟢 슬라임 HP 300\/300/)
 })
