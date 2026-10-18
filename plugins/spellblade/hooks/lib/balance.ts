@@ -74,6 +74,7 @@ export const MS = {
   tick: 400,
   poof: 800,           // 쓰러진 몬스터 연기
   popup: 1200,         // 데미지 · XP 숫자가 떠 있는 시간
+  popupRise: 400,      // 숫자가 2점씩 오르는 박자
   monsterHit: 300,     // 맞아서 하얗게
   monsterAttack: 600,  // 반격
   breath: 800,         // 숨쉬기 한 박자
