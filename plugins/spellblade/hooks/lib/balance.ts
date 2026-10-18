@@ -12,14 +12,25 @@ export const STAGES: readonly StageDef[] = [
   { id: 'saint', name: '마검성', minLevel: 45, emoji: '🌟' },
 ]
 
-// 단계마다 바뀌는 장비 (2차 설계 3장)
-export const EQUIPMENT: Record<StageId, { weapon: string; armor: string; trinket: string }> = {
-  trainee: { weapon: '나무 검', armor: '천 옷 · 머리띠', trinket: '—' },
-  swordsman: { weapon: '철검', armor: '가죽 갑옷', trinket: '둥근 방패' },
-  spellblade: { weapon: '룬 검', armor: '경갑', trinket: '짧은 망토' },
-  knight: { weapon: '청뢰검', armor: '문양 판금 · 투구', trinket: '긴 망토 · 마법진 방패' },
-  saint: { weapon: '성검', armor: '빛의 갑옷', trinket: '등 뒤 마법진 · 떠 있는 검' },
-}
+// 장비 · 몬스터는 5레벨마다 바뀐다(3차 설계 4 · 5장): Lv.1~4 → 0, 5~9 → 1, …, 55~60 → 11
+export const TIER_LEVELS = 5
+export const TIERS = 12
+
+// 장비 12단계 (3차 설계 4장 표). 투구는 쓰지 않는다
+export const EQUIPMENT12: readonly { weapon: string; armor: string; trinket: string }[] = [
+  { weapon: '나무 검', armor: '천 옷', trinket: '머리띠' },
+  { weapon: '철검', armor: '가죽 갑옷', trinket: '둥근 나무 방패' },
+  { weapon: '강철 검', armor: '징 박은 가죽 갑옷', trinket: '쇠테 방패' },
+  { weapon: '룬 검', armor: '경갑', trinket: '짧은 망토' },
+  { weapon: '푸른 룬 검', armor: '은빛 경갑', trinket: '짧은 망토 · 룬 방패' },
+  { weapon: '마력 검', armor: '마법 경갑', trinket: '긴 망토' },
+  { weapon: '청뢰검', armor: '문양 판금', trinket: '긴 망토 · 마법진 방패' },
+  { weapon: '청뢰검(번개 두름)', armor: '문양 판금 · 어깨 장식', trinket: '마법진 방패 · 서클릿' },
+  { weapon: '폭풍검', armor: '은빛 판금', trinket: '큰 마법진 방패' },
+  { weapon: '성검', armor: '빛의 갑옷', trinket: '등 뒤 마법진' },
+  { weapon: '성검(빛남)', armor: '빛의 갑옷 · 금테', trinket: '떠 있는 검 하나' },
+  { weapon: '천공의 성검', armor: '별빛 갑옷', trinket: '떠 있는 검 셋' },
+]
 
 // 경고선(남은 %): 체력 = 주간 한도, 마나 = 5시간 한도
 export const LIMIT_WARN = { hp: 30, mp: 20 } as const

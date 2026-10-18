@@ -70,12 +70,12 @@ test('만렙 뒤에는 명성', async () => {
   expect(progressOf(1000)).toMatchObject({ isMax: false, fame: 0 })
 })
 
-test('장비 · 강화', async () => {
-  expect(equipmentAt(9)).toMatchObject({ weapon: '철검', armor: '가죽 갑옷', trinket: '둥근 방패', plus: 4, next: { weapon: '룬 검' } })
-  expect(equipmentAt(9).next?.stage.minLevel).toBe(15)
-  expect(equipmentAt(1)).toMatchObject({ weapon: '나무 검', plus: 0 })
-  expect(equipmentAt(45).next).toBe(null)
-  expect(equipmentAt(60)).toMatchObject({ weapon: '성검', plus: 15 })
+test('장비는 12단계', async () => {
+  expect(equipmentAt(1)).toMatchObject({ weapon: '나무 검', armor: '천 옷', trinket: '머리띠', plus: 0, next: { level: 5, weapon: '철검' } })
+  expect(equipmentAt(9)).toMatchObject({ weapon: '철검', armor: '가죽 갑옷', trinket: '둥근 나무 방패', plus: 4, next: { level: 10, weapon: '강철 검' } })
+  expect(equipmentAt(37)).toMatchObject({ weapon: '청뢰검(번개 두름)', plus: 2 })
+  expect(equipmentAt(55)).toMatchObject({ weapon: '천공의 성검', next: null })
+  expect(equipmentAt(60)).toMatchObject({ weapon: '천공의 성검', plus: 5, next: null })
 })
 
 test('토큰 수가 숫자가 아니면 0 으로 센다', async () => {

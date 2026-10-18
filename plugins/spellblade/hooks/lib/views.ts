@@ -193,7 +193,7 @@ function statusTab(el: Els, v: CardView, road?: unknown[]): unknown[] {
   const eq = v.equipment
   const gauges = gaugesLine(v)
   const nextLine = eq.next
-    ? `  다음 장비: ${eq.next.weapon} — Lv.${eq.next.stage.minLevel}, 앞으로 ${comma(Math.max(0, xpForLevel(eq.next.stage.minLevel) - p.xp))} XP`
+    ? `  다음 장비: ${eq.next.weapon} — Lv.${eq.next.level}, 앞으로 ${comma(Math.max(0, xpForLevel(eq.next.level) - p.xp))} XP`
     : '  다음 장비: 없음 — 마지막 단계예요'
   const at = STAGES.findIndex(s => s.id === p.stage.id)
   const names = STAGES.map((s, i) =>

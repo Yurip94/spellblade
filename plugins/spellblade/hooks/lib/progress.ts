@@ -1,4 +1,4 @@
-import { EQUIPMENT, FAME_PER_XP, LEVEL_BASE, MAX_LEVEL, STAGES, XP_PER_W, type StageDef } from './balance.ts'
+import { EQUIPMENT12, FAME_PER_XP, LEVEL_BASE, MAX_LEVEL, STAGES, TIER_LEVELS, TIERS, XP_PER_W, type StageDef } from './balance.ts'
 
 export type Usage = {
   input_tokens: number
@@ -60,14 +60,18 @@ export function progressOf(xp: number): Progress {
   return { xp, level, stage, into, need, ratio: into / need, isMax: false, fame: 0 }
 }
 
-// 지금 장비와 강화 수치(단계 안에서 오른 레벨 수), 다음 단계 무기
-export function equipmentAt(level: number): { weapon: string; armor: string; trinket: string; plus: number; next: { stage: StageDef; weapon: string } | null } {
-  const stage = stageOf(level)
-  const i = STAGES.findIndex(s => s.id === stage.id)
-  const nextStage = STAGES[i + 1]
+// 장비 · 몬스터 단계: 5레벨마다 (Lv.1~4 → 0, 55~60 → 11)
+export function tierOf(level: number): number {
+  return Math.max(0, Math.min(TIERS - 1, Math.floor(level / TIER_LEVELS)))
+}
+
+// 지금 장비와 강화 수치(그 단계 첫 레벨부터 오른 레벨 수), 다음 단계 무기
+export function equipmentAt(level: number): { weapon: string; armor: string; trinket: string; plus: number; next: { level: number; weapon: string } | null } {
+  const tier = tierOf(level)
+  const first = tier === 0 ? 1 : tier * TIER_LEVELS
   return {
-    ...EQUIPMENT[stage.id],
-    plus: level - stage.minLevel,
-    next: nextStage ? { stage: nextStage, weapon: EQUIPMENT[nextStage.id].weapon } : null,
+    ...EQUIPMENT12[tier],
+    plus: level - first,
+    next: tier < TIERS - 1 ? { level: (tier + 1) * TIER_LEVELS, weapon: EQUIPMENT12[tier + 1].weapon } : null,
   }
 }
