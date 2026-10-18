@@ -54,6 +54,7 @@ let tab: Tab = 1 // 카드 창 탭
 let surface = 'terminal' // session.start 가 알려 준 표면(데스크톱에선 null 일 수 있다)
 let battle: Battle | null = null // 지금 싸우는 몬스터(새 세션이면 지금 장비 단계로 새로 만든다)
 let pendingHits: number[] = [] // 메인 도구 오류 시각 — Esc 중단인지 가린 뒤(1초 · 다음 호출 · 턴 끝) 반격으로
+let loaded = false // 처음 불러오기가 끝났는지 — 그 전에는 날짜 · 합계가 비어 그리지 못한다
 let levelSeen = 0 // 이 창이 이미 본 레벨 — 레벨업 알림을 한 번만 내려고 먼저 차지한다
 let questsFrom = '' // 이 날부터 의뢰 보상을 센다(2.0 을 처음 켠 날 — 지난날 소급 없음)
 let sessionW = 0
@@ -85,6 +86,7 @@ function serial(job: () => Promise<void>): Promise<void> {
 }
 
 const PANE = 'spellblade'
+const LOADING = '마검사를 불러오는 중…'
 
 const PROBE = 'spellblade-probe'
 const PROBE_PALETTE = { r: 0xd23c3c, b: 0x3c64d2, y: 0xf0c83c }
@@ -329,6 +331,7 @@ async function loadNow($: EngineInterface): Promise<void> {
   // 이 창이 켜지기 전에 오른 레벨은 다시 알리지 않는다
   const levelNow = levelOf(totalXp())
   if (!battle) battle = newBattle(tierOf(levelNow), totalXp())
+  loaded = true
   levelSeen = Math.max(isProfile(profile) ? profile.lastLevel : 0, levelNow)
 
   // 처음 켤 때는 이미 이룬 것을 조용히 기록만 한다(지난 레벨 · 칭호 · 의뢰를 한꺼번에 알리지 않으려고)
@@ -825,6 +828,7 @@ export const register: Register = (on, options) => {
   }).catch(async ($, e, next) => (next.called ? undefined : next(e))) // 기록에 실패해도 도구 결과는 그대로
 
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    if (!loaded) return next(e)
     const suffix = e.props.suffix + spinnerSuffix(snapshot().progress, Math.floor(turnW / 1000))
     return next({ ...e, props: { ...e.props, suffix } })
   })
@@ -834,6 +838,7 @@ export const register: Register = (on, options) => {
     const below = await next(e)
     clockNow = await $.clock.now() // 그리는 순간의 시각(배너 · 자세가 틱을 기다리지 않게)
     const el = $.ui.resolve(e) as unknown as Els
+    if (!loaded) return el.Box({ flexDirection: 'column', children: [el.Text({ wrap: 'truncate-end', dimColor: true, children: [LOADING] }), below] }) as any
     const v = snapshot()
     // 터미널은 언제나 한 줄. 데스크톱 그림판(장면 320 × 128 + 글)은 84칸 · 10줄 이상에서만
     const roomy = e.surface !== 'terminal' && band === 'panel' && e.props.bodyColumns >= 84 && e.props.maxRows >= 10
@@ -846,6 +851,7 @@ export const register: Register = (on, options) => {
     if (e.requestId === PANE) {
       clockNow = await $.clock.now()
       const el = $.ui.resolve(e) as unknown as Els
+      if (!loaded) return el.Text({ dimColor: true, children: [LOADING] }) as any
       const v = snapshot()
       const onTab = (t: Tab) => {
         tab = t

@@ -1349,3 +1349,16 @@ test('reset 하면 몬스터도 처음부터', async ($, on) => {
   await blade($, 'reset')
   expect(await cardText($)).toMatch(/🟢 슬라임 HP 300\/300/)
 })
+
+// 엔진은 터진 그리기 훅을 건너뛰고 아래 것만 그린다 — 우리 글이 실제로 나왔는지 본다(2.0 부터 있던 「Invalid Date」)
+test('불러오기 전에 그려도 터지지 않는다', async ($, on) => {
+  beneath(on, { now: NOON })
+  const band = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  expect(JSON.stringify(await band.drawn())).toMatch(/불러오는 중/)
+  const desk = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
+  expect(JSON.stringify(await desk.drawn())).toMatch(/불러오는 중/)
+  const card = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'Pane', requestId: 'spellblade', props: PANE() })
+  expect(JSON.stringify(await card.drawn())).toMatch(/불러오는 중/)
+  await start($)
+  expect(JSON.stringify(await band.drawn())).toMatch(/Lv\.1/)
+})
