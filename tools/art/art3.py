@@ -408,39 +408,154 @@ def preview(out):
     cells = [monster_rgb(t, p) for t in range(12) for p in MONSTER_POSES]
     sheet(os.path.join(out, 'preview-v3-monsters.png'), cells, len(MONSTER_POSES), max(len(c[0]) for c in cells), max(len(c) for c in cells), scale=3)
     sheet(os.path.join(out, 'preview-v3-scene.png'), scene_samples(), 2, SC.SW, SC.SH, scale=3, gap=10)
+    preview_readme(os.path.join(out, 'preview-v3.png'))
 
-# 장면 견본(실제 배치는 hooks/lib/scene.ts 가 한다): 마검사 칸은 (12, 8), 몬스터 칸 왼쪽은 57, 발끝은 풀 윗줄
-def scene_samples():
-    def backdrop(k): return [[BACKDROPS[k][1][ch] for ch in r] for r in BACKDROPS[k][0]]
-    def put(s, rgb, ox, oy):
+# ---------- 장면 견본(hooks/lib/scene.ts 와 같은 배치 — 미리보기 PNG 용, 이름표는 SVG 라 빠진다) ----------
+HERO_X, HERO_Y, MONSTER_X = 12, 8, 57
+CAST_TIP = (HERO_X + 42, HERO_Y + 24)
+FIRE_X = HERO_X + 52
+jsround = lambda v: math.floor(v + 0.5)   # JS Math.round
+
+def scene_box(t):
+    g = MONSTER_FRAMES[t][0]['idle0']
+    h, w = len(g), len(g[0])
+    y = SC.GROUND - (h - 1)
+    cells = [(x, yy) for yy, r in enumerate(g) for x, ch in enumerate(r) if ch != '.']
+    top, bottom = min(c[1] for c in cells), max(c[1] for c in cells)
+    left, right = min(c[0] for c in cells), max(c[0] for c in cells)
+    feet = [c[0] for c in cells if c[1] >= bottom - 2]
+    return {'y': y, 'h': h, 'head': y + top, 'left': MONSTER_X + left, 'right': MONSTER_X + right,
+            'mid': y + jsround((top + bottom) / 2), 'footLeft': MONSTER_X + min(feet), 'footRight': MONSTER_X + max(feet),
+            'floating': not g[-1].strip('.')}
+
+def scene(mode, tier, pose, monster=None, mpose='idle0', hp=1.0, popups=(), frame=0, dim=False):
+    rest = mode == 'rest'
+    s = [[BACKDROPS['night' if rest else 'day'][1][ch] for ch in r] for r in BACKDROPS['night' if rest else 'day'][0]]
+    def put(rgb, ox, oy, tint=None):
         for y, r in enumerate(rgb):
             for x, v in enumerate(r):
-                if v is not None and 0 <= ox + x < SC.SW and 0 <= oy + y < SC.SH: s[oy + y][ox + x] = v
-    def fx(s, k, ox, oy): put(s, flat_rgb(*FX[k]), ox, oy)
-    def monster(s, t, pose='idle0', x=57):
-        m = monster_rgb(t, pose); put(s, m, x, SC.GROUND - (len(m) - 1))
-    def damage(s, text, ox, oy):
-        cells = {}
-        for i, ch in enumerate(text):
-            for y, r in enumerate(SC.DAMAGE[ch]):
-                for x, b in enumerate(r):
-                    if b == '#': cells[(ox + i * 7 + x + (i % 2), oy + y - (i % 2))] = y
-        for (x, y) in cells:
-            for dx in (-1, 0, 1):
-                for dy in (-1, 0, 1):
-                    if (x + dx, y + dy) not in cells and 0 <= x + dx < SC.SW and 0 <= y + dy < SC.SH: s[y + dy][x + dx] = 0x6a1408
-        for (x, y), row in cells.items(): s[y][x] = 0xfff27a if row < 3 else 0xffc23a if row < 6 else 0xff8a1a
-    out = []
-    for t in (0, 5, 11):                                     # 낮 전투: 베기 · 칼 궤적 · 데미지
-        s = backdrop('day'); put(s, hero_rgb(t, 'slash'), 12, 8); monster(s, t, 'hit' if t == 5 else 'idle0')
-        fx(s, 'slashArc', 50, 33); damage(s, '128', 66, 6); out.append(s)
-    s = backdrop('night'); put(s, hero_rgb(3, 'sit'), 12, 8)          # 밤 모닥불 휴식
-    fx(s, 'fire1', 64, SC.GROUND - 24); fx(s, 'zzz', 48, 6); out.append(s)
-    s = backdrop('day'); put(s, hero_rgb(2, 'castFail'), 12, 8)       # 캐스팅 실패: 연기 · 땀
-    fx(s, 'smoke', 50, 24); fx(s, 'sweat', 46, 16); monster(s, 3, 'attack'); out.append(s)
-    s = backdrop('day'); fx(s, 'pillar1', 22, SC.GROUND - 59)          # 승리 · 레벨업 빛기둥 · 몬스터 연기
-    put(s, hero_rgb(6, 'victory'), 12, 8); fx(s, 'poof2', 62, 30); out.append(s)
-    return out
+                if v is not None and 0 <= ox + x < SC.SW and 0 <= oy + y < SC.SH:
+                    s[oy + y][ox + x] = mix(v, tint[0], tint[1]) if tint else v
+    def px(x, y, v):
+        if 0 <= x < SC.SW and 0 <= y < SC.SH: s[y][x] = v
+    def shadow(x0, x1, k=1.0):
+        for y, a in ((SC.GROUND + 1, 0.35), (SC.GROUND + 2, 0.25)):
+            for x in range(x0, x1 + 1):
+                if 0 <= x < SC.SW: s[y][x] = mix(s[y][x], 0x000000, a * k)
+    fx = lambda k: flat_rgb(*FX[k])
+    if rest:
+        cx, cy = FIRE_X + 6, SC.GROUND - 6
+        for y in range(SC.SH):
+            for x in range(SC.SW):
+                d = math.hypot(x - cx, (y - cy) * 1.25)
+                if d < 40: s[y][x] = mix(s[y][x], 0xff9a3a, (1 - d / 40) * 0.5)
+        fire = fx('fire2' if frame else 'fire1'); put(fire, FIRE_X, SC.GROUND - len(fire))
+    sitting = pose in ('sit', 'sleep')
+    shadow(HERO_X + (12 if sitting else 15), HERO_X + (40 if sitting else 33))
+    if pose == 'levelup':
+        pillar = fx('pillar2' if frame else 'pillar1'); put(pillar, HERO_X + 22 - jsround(len(pillar[0]) / 2), SC.GROUND + 1 - len(pillar))
+    put(hero_rgb(tier, pose), HERO_X, HERO_Y, (0xffb060, 0.12) if rest else None)
+    box = None
+    if not rest and monster is not None:
+        box = scene_box(monster)
+        if mpose == 'poof':
+            cloud = fx('poof1'); put(cloud, jsround((box['left'] + box['right']) / 2 - len(cloud[0]) / 2), jsround(box['mid'] - len(cloud) / 2))
+        else:
+            shadow(box['footLeft'] - 1, box['footRight'] + 1, 0.5 if box['floating'] else 1)
+            put(monster_rgb(monster, mpose), MONSTER_X, box['y'])
+            w = max(16, min(30, box['right'] - box['left'] - 1))
+            filled = 0 if hp <= 0 else max(1, jsround(w * hp))
+            bx, by = math.floor((box['left'] + box['right'] + 1) / 2 - (w + 2) / 2), max(1, box['head'] - 6)
+            for i in range(w + 2): px(bx + i, by, 0x101018); px(bx + i, by + 3, 0x101018)
+            for dy in (1, 2):
+                px(bx, by + dy, 0x101018); px(bx + w + 1, by + dy, 0x101018)
+                for i in range(w): px(bx + 1 + i, by + dy, (0xff5050 if dy == 1 else 0xd02a2a) if i < filled else 0x3a1414)
+    tx, ty = CAST_TIP
+    if pose == 'slash': put(fx('slashArc'), HERO_X + 38, HERO_Y + 38 - 13)
+    elif pose in ('cast1', 'cast2'):
+        put(fx('castGlow1' if pose == 'cast1' else 'castGlow2'), tx - 6, ty - 6, (0x262636, 0.55) if dim else None)
+    elif pose == 'castHit':
+        put(fx('castGlow2'), tx - 6, ty - 6)
+        if box: put(fx('bolt'), box['left'] + 1 - 15, box['mid'] - 4)
+    elif pose == 'castFail':
+        put(fx('smoke'), tx - 5, ty - 7); put(fx('sweat'), HERO_X + 37, HERO_Y + 15); put(fx('sweat'), HERO_X + 5, HERO_Y + 18)
+        for dx, dy in ((9, -6), (8, 5), (-4, -5), (10, 0)): px(tx + dx, ty + dy, 0xffe060)
+    elif pose == 'levelup':
+        text(s, 'LEVEL UP', (SC.SW - text_width('LEVEL UP', 'big')) // 2, 2, 'big', lambda r: 0xfffbe0 if r < 3 else 0xffe060 if r < 6 else 0xffb020, 0x6a3a08)
+    elif pose == 'sleep': put(fx('zzz'), HERO_X + 36, HERO_Y - 2)
+    if box:
+        cx, base = (box['left'] + box['right'] + 1) / 2, max(11, box['head'] - 17)
+        for i, (kind, label, age) in enumerate(popups):
+            font = 'damage' if kind == 'damage' else 'small'
+            y = base - 2 * (age // 400) - 10 * (len(popups) - 1 - i)
+            x = jsround(cx - text_width(label, font) / 2)
+            if kind == 'damage': text(s, label, x, y, font, lambda r: 0xfff27a if r < 3 else 0xffc23a if r < 6 else 0xff8a1a, 0x6a1408, hop=True)
+            else: text(s, label, x, y, font, lambda r: 0xe8ffb0 if r < 3 else 0xb4f070 if r < 5 else 0x7ad040, 0x1c4a14)
+    return s
+
+GLYPH = {'damage': SC.DAMAGE, 'small': SC.SMALL, 'big': SC.BIG}
+GAP = {'damage': 4, 'small': 3, 'big': 4}
+
+def text_width(label, font):
+    return max(0, sum(GAP[font] if ch == ' ' else len(GLYPH[font][ch][0]) + 1 for ch in label) - 1)
+
+def text(s, label, x, y, font, fill, edge, hop=False):
+    cells, cx = {}, x
+    for i, ch in enumerate(label):
+        if ch == ' ': cx += GAP[font]; continue
+        g = GLYPH[font][ch]
+        dx, dy = (i % 2, -(i % 2)) if hop else (0, 0)
+        for gy, r in enumerate(g):
+            for gx, b in enumerate(r):
+                if b == '#': cells[(cx + gx + dx, y + gy + dy)] = gy
+        cx += len(g[0]) + 1
+    for (px_, py_) in cells:
+        for ox in (-1, 0, 1):
+            for oy in (-1, 0, 1):
+                if (px_ + ox, py_ + oy) not in cells and 0 <= px_ + ox < SC.SW and 0 <= py_ + oy < SC.SH: s[py_ + oy][px_ + ox] = edge
+    for (px_, py_), row in cells.items():
+        if 0 <= px_ < SC.SW and 0 <= py_ < SC.SH: s[py_][px_] = fill(row)
+
+def scene_samples():
+    return [
+        scene('battle', 0, 'slash', 0, 'hit', 0.55, (('damage', '18', 400), ('damage', '18', 0))),
+        scene('battle', 4, 'cast1', 4),
+        scene('battle', 8, 'castHit', 8, 'hit', 0.4, (('damage', '214', 0),)),
+        scene('battle', 2, 'castFail', 2),
+        scene('battle', 5, 'hit', 5, 'attack'),
+        scene('battle', 7, 'victory', 7, 'poof', 0, (('damage', '96', 400), ('xp', '+37 XP', 0))),
+        scene('battle', 11, 'levelup', 11, frame=1),
+        scene('rest', 3, 'sit'),
+        scene('rest', 9, 'sleep'),
+        scene('battle', 10, 'idle', 10),
+    ]
+
+# README 미리보기: 장면 세 장(전투 · 캐스팅 실패 · 모닥불) + 몬스터 12종 줄
+def preview_readme(path):
+    scale, gap, bg = 3, 12, (30, 30, 36)
+    top = [scene('battle', 3, 'slash', 3, 'hit', 0.7, (('damage', '36', 400), ('damage', '30', 0))),
+           scene('battle', 6, 'castFail', 6),
+           scene('rest', 9, 'sit')]
+    lineup = [monster_rgb(t, 'idle0') for t in range(12)]
+    row_w = sum(len(m[0]) for m in lineup) + 4 * 11
+    row_h = max(len(m) for m in lineup)
+    tw = max(3 * SC.SW * scale + 4 * gap, row_w * scale + 2 * gap)
+    th = SC.SH * scale + row_h * scale + 3 * gap
+    pixels = [bg] * (tw * th)
+    def stamp(rgb, ox, oy):
+        for y, r in enumerate(rgb):
+            for x, v in enumerate(r):
+                if v is None: continue
+                col = ((v >> 16) & 255, (v >> 8) & 255, v & 255)
+                for dy in range(scale):
+                    base = (oy + y * scale + dy) * tw + ox + x * scale
+                    for dx in range(scale): pixels[base + dx] = col
+    for i, sc in enumerate(top): stamp(sc, gap + i * (SC.SW * scale + gap), gap)
+    x = (tw - row_w * scale) // 2
+    for m in lineup:
+        stamp(m, x, 2 * gap + SC.SH * scale + (row_h - len(m)) * scale)
+        x += (len(m[0]) + 4) * scale
+    png(path, pixels, tw, th)
 
 # ---------- 시안 7판과 같은지 ----------
 def check():

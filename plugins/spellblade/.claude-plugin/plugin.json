@@ -1,6 +1,6 @@
 {
   "name": "spellblade",
-  "version": "2.0.1",
+  "version": "3.0.0",
   "description": "Claude Code 를 쓴 만큼 수련생에서 마검성으로 자라는 판타지 마검사",
   "author": {
     "name": "박정욱"
@@ -25,8 +25,8 @@
     },
     "motion": {
       "type": "string",
-      "title": "데스크톱 움직임",
-      "description": "frames(기본, 0.4초마다 그림 교체) · smooth(SVG 안에서 부드럽게 — 데스크톱 앱에서 크기가 흔들리면 frames 로)",
+      "title": "데스크톱 움직임(3차에서는 효과 없음)",
+      "description": "2.x 설정을 그대로 두어도 되도록 남겨 둔 칸이다. 3차 장면은 이 값을 쓰지 않는다",
       "default": "frames",
       "options": [
         "frames",

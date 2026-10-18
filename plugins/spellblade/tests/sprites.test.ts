@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
-import { compose, cropTop, gridErrors, HEIGHT, scaleGrid, shiftGrid, WIDTH } from '../hooks/lib/sprites.ts'
-import { framesToSvg, gridToSvg } from '../hooks/lib/to-svg.ts'
+import { compose, HEIGHT, WIDTH } from '../hooks/lib/sprites.ts'
+import { gridToSvg } from '../hooks/lib/to-svg.ts'
 import { gridToRaster } from '../hooks/lib/to-raster.ts'
 
 const P = { a: 0xff0000, b: 0x0000ff }
@@ -13,12 +13,6 @@ const decode = (cells: string) => new Uint32Array(Uint8Array.from(atob(cells), c
 test('합치기는 뒤 층이 덮는다', async () => {
   expect(compose(tl, [row('b'), ...blank.slice(1)])[0].slice(0, 2)).toBe('bb')
   expect(compose(tl, blank)).toEqual(tl)
-})
-
-test('크기 · 글자 검사', async () => {
-  expect(gridErrors(blank, P)).toEqual([])
-  expect(gridErrors(['a'], P).length).toBeGreaterThan(0)
-  expect(gridErrors([row('z'), ...blank.slice(1)], P)[0]).toMatch(/z/)
 })
 
 test('Svg: 빈 격자에는 path 가 없다', async () => {
@@ -48,49 +42,4 @@ test('Raster: 반칸 규칙', async () => {
 test('Raster: 위가 비면 아래 반칸', async () => {
   const u = decode(gridToRaster([row(''), row('a'), ...blank.slice(2)], P, 'k').cells)
   expect([u[0], u[1], u[2]]).toEqual([0x2584, 0xff0000, 0x01000000])
-})
-
-test('2배 크기', async () => {
-  const big = scaleGrid(tl, 2)
-  expect(big.length).toBe(HEIGHT * 2)
-  expect(big[0].length).toBe(WIDTH * 2)
-  const r = gridToRaster(big, P, 'big')
-  expect([r.columns, r.rows]).toEqual([WIDTH * 2, HEIGHT])
-})
-
-test('위만 자르기 (터미널 밴드 상반신)', async () => {
-  const c = cropTop(tl, 16)
-  expect(c.length).toBe(16)
-  expect(c[0]).toBe(tl[0])
-  expect(gridToRaster(c, P, 'half').rows).toBe(8)
-})
-
-test('옮기기: 밖으로 나간 칸은 버린다', async () => {
-  const s = shiftGrid(tl, -1, 1)
-  expect(s[0]).toBe(row(''))
-  expect(s[1].slice(0, 2)).toBe('b.')
-  expect(s.length).toBe(HEIGHT)
-})
-
-test('애니메이션 SVG: 프레임마다 g 하나, 번갈아 보이기', async () => {
-  const a = { grid: [row('a'), ...blank.slice(1)], palette: P }
-  const b = { grid: [row('.b'), ...blank.slice(1)], palette: P }
-  const s = framesToSvg([a, b], 4, 400)
-  expect((s.match(/<g/g) ?? []).length).toBe(2)
-  expect(s).toMatch(/repeatCount="indefinite"/)
-  expect(s).toMatch(/dur="800ms"/)
-  expect(s).toMatch(/calcMode="discrete"/)
-})
-
-test('애니메이션 SVG: 한 장이면 보통 SVG 와 같다', async () => {
-  const a = { grid: [row('a'), ...blank.slice(1)], palette: P }
-  expect(framesToSvg([a], 4, 400)).toBe(gridToSvg(a.grid, a.palette, 4))
-})
-
-test('애니메이션 SVG: 프레임마다 길이를 다르게', async () => {
-  const a = { grid: [row('a'), ...blank.slice(1)], palette: P }
-  const b = { grid: [row('.b'), ...blank.slice(1)], palette: P }
-  const s = framesToSvg([a, b], 4, [2600, 400])
-  expect(s).toMatch(/dur="3000ms"/)
-  expect(s).toMatch(/keyTimes="0\.0000;0\.8667"/)
 })

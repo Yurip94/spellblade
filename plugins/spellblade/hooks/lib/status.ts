@@ -1,9 +1,6 @@
 import { LIMIT_WARN, MS, REST_AFTER_MS, TIERS } from './balance.ts'
 import type { HeroPose } from './hero3.ts'
 
-// 2.x 그림(art.ts)이 쓰는 자세(Task 10 에서 art.ts 와 함께 지운다)
-export type Pose = 'idle' | 'blink' | 'cast1' | 'cast2' | 'slash' | 'victory' | 'hit' | 'levelup' | 'sleep'
-
 export type FlashKind = 'castHit' | 'castFail' | 'slash' | 'victory' | 'loot' | 'hit' | 'levelup'
 export type Flash = { kind: FlashKind; from: number; until: number; detail?: string }
 // queued: 지금 연출이 끝나면 이어질 연출 하나(마법 결과 0.7초 뒤의 승리처럼)
