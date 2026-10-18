@@ -1256,7 +1256,8 @@ test('캐시 재사용이 높으면 마법 적중', async ($, on) => {
 })
 
 test('서브에이전트 단계는 연출 없이 XP 만', async ($, on) => {
-  beneath(on, { now: NOON })
+  // 첫 XP 의 칭호 알림(전리품, 순위 3)이 마법 연출(순위 0)을 가리지 않게 첫 칭호를 이미 가진 프로필로
+  beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
   answerUsage(on, { output_tokens: 34_000, input_tokens: 10_000 })
   await start($)
   await $.turn.start({ text: 'hi', turnId: 't' })
@@ -1264,6 +1265,7 @@ test('서브에이전트 단계는 연출 없이 XP 만', async ($, on) => {
   const band = await bandText($)
   expect(band).not.toMatch(/마법 적중|주문이 꼬였다/)
   expect(band).toMatch(/오늘 \+35 XP/)
+  expect(await cardText($)).toMatch(/🟢 슬라임 HP 300\/300/)
 })
 
 test('Esc 로 끊긴 도구는 반격이 아니다', async ($, on) => {
@@ -1361,4 +1363,62 @@ test('불러오기 전에 그려도 터지지 않는다', async ($, on) => {
   expect(JSON.stringify(await card.drawn())).toMatch(/불러오는 중/)
   await start($)
   expect(JSON.stringify(await band.drawn())).toMatch(/Lv\.1/)
+})
+
+test('턴 끝 승리는 마지막 단계의 캐스팅 실패 뒤에 이어진다', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
+  answerUsage(on, { input_tokens: 10_000, cache_read_input_tokens: 100 })
+  await start($)
+  await oneTurn($)
+  expect(await bandText($)).toMatch(/주문이 꼬였다/)
+  await clock.advance(800)
+  expect(await bandText($)).toMatch(/✓ 승리/)
+})
+
+// Esc 로 끊으면 엔진은 도구 훅을 기다리지 않고 턴을 끝낼 수 있다 — 끊긴 도구의 오류가 턴 끝 뒤에 도착해도 반격이 아니다
+function gatedError(on: On): () => void {
+  let release: () => void = () => {}
+  const gate = new Promise<void>(r => { release = r })
+  on('tool.call', async () => {
+    await gate
+    return { result: 'interrupted', isError: true }
+  })
+  return () => release()
+}
+
+test('Esc 뒤 늦게 도착한 도구 오류도 반격이 아니다', async ($, on) => {
+  const { clock, seen } = beneath(on, { now: NOON })
+  const release = gatedError(on)
+  answerStep(on, 1_000)
+  await start($)
+  await oneTurn($)
+  await $.turn.start({ text: 'b', turnId: 't2' })
+  const call = $.tool.call({ tool: 'Bash', command: 'sleep 30' } as any)
+  await new Promise(r => setTimeout(r, 0))
+  await $.turn.complete({ turnId: 't2', answer: '', durationMs: 1, isAborted: true, reason: 'aborted' })
+  release()
+  await call
+  await clock.advance(1_500)
+  expect(await bandText($)).not.toMatch(/반격/)
+  await oneTurn($)
+  expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ clean: 2 })
+})
+
+test('Esc 뒤 새 턴에 도착한 늦은 오류도 그 턴을 깨지 않는다', async ($, on) => {
+  const { clock, seen } = beneath(on, { now: NOON })
+  const release = gatedError(on)
+  answerStep(on, 1_000)
+  await start($)
+  await oneTurn($)
+  await $.turn.start({ text: 'b', turnId: 't2' })
+  const call = $.tool.call({ tool: 'Bash', command: 'sleep 30' } as any)
+  await new Promise(r => setTimeout(r, 0))
+  await $.turn.complete({ turnId: 't2', answer: '', durationMs: 1, isAborted: true, reason: 'aborted' })
+  await $.turn.start({ text: 'c', turnId: 't' })
+  release()
+  await call
+  await clock.advance(1_200)
+  await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }))
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ clean: 2 })
 })

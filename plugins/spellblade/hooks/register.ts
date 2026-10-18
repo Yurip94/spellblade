@@ -55,6 +55,7 @@ let surface = 'terminal' // session.start 가 알려 준 표면(데스크톱에�
 let battle: Battle | null = null // 지금 싸우는 몬스터(새 세션이면 지금 장비 단계로 새로 만든다)
 let pendingHits: number[] = [] // 메인 도구 오류 시각 — Esc 중단인지 가린 뒤(1초 · 다음 호출 · 턴 끝) 반격으로
 let loaded = false // 처음 불러오기가 끝났는지 — 그 전에는 날짜 · 합계가 비어 그리지 못한다
+let mainTurnSeq = 0 // 메인 턴이 끝날 때마다 1씩 — 끝난 턴의 도구가 늦게 낸 오류를 가린다
 let levelSeen = 0 // 이 창이 이미 본 레벨 — 레벨업 알림을 한 번만 내려고 먼저 차지한다
 let questsFrom = '' // 이 날부터 의뢰 보상을 센다(2.0 을 처음 켠 날 — 지난날 소급 없음)
 let sessionW = 0
@@ -748,6 +749,7 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     if (!e.agentId) {
+      mainTurnSeq += 1
       clockNow = await $.clock.now()
       // Esc 로 끊긴 턴의 도구 오류는 중단이 낸 것이라 반격이 아니다. 아니면 지금 반격으로(「반격 없이 연속」 판정보다 먼저)
       if (e.isAborted) pendingHits = []
@@ -783,6 +785,7 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const main = !e.agentId
     const skill = skillOf(e.tool)
+    const seq = mainTurnSeq // 이 호출이 시작된 메인 턴
     if (main) {
       // 부르는 순간 베기 — 기술 이름과 콤보, 몬스터에 데미지. 다음 도구를 불렀으면 앞의 오류는 Esc 중단이 아니다
       clockNow = await $.clock.now()
@@ -807,8 +810,9 @@ export const register: Register = (on, options) => {
     if (skill.id === 'clone') entry.agents = (entry.agents ?? 0) + 1
     dirty.add(day)
     if (out.isError) {
-      // 반격은 Esc 중단인지 가린 뒤에(1초 · 다음 호출 · 턴 끝 — applyHits)
-      if (main) pendingHits.push(now)
+      // 반격은 Esc 중단인지 가린 뒤에(1초 · 다음 호출 · 턴 끝 — applyHits).
+      // Esc 로 끊기면 엔진은 이 훅을 기다리지 않고 턴을 끝낼 수 있다 — 끊긴 호출이나 이미 끝난 턴의 오류는 반격이 아니다
+      if (main && !next.signal.aborted && seq === mainTurnSeq) pendingHits.push(now)
     } else {
       // 최고 콤보는 성공으로 끝난 호출의 연속으로 센다(끝난 날 기준 — 자정 · 병렬 호출에도 어긋나지 않게)
       if (main) {
