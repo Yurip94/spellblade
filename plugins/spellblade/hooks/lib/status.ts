@@ -1,7 +1,7 @@
 import { LIMIT_WARN, MS, REST_AFTER_MS, TIERS } from './balance.ts'
 import type { HeroPose } from './hero3.ts'
 
-// 2.x 그림 길이 쓰는 자세(Task 8 에서 3차 장면으로 바꾸면 legacyPose 와 함께 지운다)
+// 2.x 그림(art.ts)이 쓰는 자세(Task 10 에서 art.ts 와 함께 지운다)
 export type Pose = 'idle' | 'blink' | 'cast1' | 'cast2' | 'slash' | 'victory' | 'hit' | 'levelup' | 'sleep'
 
 export type FlashKind = 'castHit' | 'castFail' | 'slash' | 'victory' | 'loot' | 'hit' | 'levelup'
@@ -79,13 +79,6 @@ function basePose(a: Activity, now: number): Scene {
   if (idle >= REST_AFTER_MS) return { pose: 'sit', line: '모닥불 앞에서 쉬는 중', mode: 'rest' }
   if (now % MS.blinkEvery < MS.blinkFor) return { pose: 'blink', line: '쉬는 중', mode: 'battle' }
   return { pose: 'idle', line: '쉬는 중', mode: 'battle' }
-}
-
-// 2.x 그림 길이 없는 자세를 가까운 자세로(임시 — Task 8 에서 지운다)
-export function legacyPose(p: HeroPose): Pose {
-  if (p === 'castHit' || p === 'castFail') return 'cast1'
-  if (p === 'sit') return 'sleep'
-  return p
 }
 
 // ---- /blade demo: 12단계 × [베기 · 캐스팅 실패 · 모닥불] 을 0.8초씩, 저장소는 건드리지 않는다 ----

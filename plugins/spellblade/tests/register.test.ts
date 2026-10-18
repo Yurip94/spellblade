@@ -131,7 +131,8 @@ const YESTERDAY = dayKey(NOON - 86_400_000, TZ)
 const entry = (w: number, bonus = 0, swings = 0) => ({ w, bonus, swings, updatedAt: 1 })
 const BAND = (o = {}) => ({ hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: 100, scroll: { offset: 0, bodyRows: 12 }, view: {}, ...o })
 
-async function bandText($: Engine, surface: 'terminal' | 'desktop' = 'terminal', props = BAND()): Promise<string> {
+// 그림판 글(상태 줄 · 체력 · 마나 · 배낭)은 데스크톱 밴드에만 있다 — 터미널 밴드는 한 줄
+async function bandText($: Engine, surface: 'terminal' | 'desktop' = 'desktop', props = BAND()): Promise<string> {
   const m = await $.ui.mount({ plugin: 'spellblade', surface, component: 'AbovePrompt', props })
   return JSON.stringify(await m.drawn())
 }
@@ -198,11 +199,13 @@ test('설문 중에는 밴드를 비켜 준다', async ($, on) => {
 
 // ---- M2: 밴드 그림판 · 카드 창 · 움직임 ----
 
-test('터미널 밴드에는 Raster, 데스크톱 밴드에는 Svg', async ($, on) => {
+test('터미널 밴드는 그림 없이 한 줄, 몬스터가 보인다', async ($, on) => {
   beneath(on, { now: NOON })
   await start($)
   const t = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
-  expect(await t.find({ type: 'Raster' })).toBeTruthy()
+  expect(await t.find({ type: 'Raster' })).toBeFalsy()
+  expect(await t.find({ type: 'Svg' })).toBeFalsy()
+  expect(await t.find({ text: /🟢 슬라임 [▓░]{3}/ })).toBeTruthy()
   const d = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
   expect(await d.find({ type: 'Svg' })).toBeTruthy()
   expect(await d.find({ type: 'Raster' })).toBeFalsy()
@@ -211,22 +214,22 @@ test('터미널 밴드에는 Raster, 데스크톱 밴드에는 Svg', async ($, o
 test('좁으면 한 줄로 바뀐다', async ($, on) => {
   beneath(on, { now: NOON })
   await start($)
-  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND({ bodyColumns: 50 }) })
-  expect(await m.find({ type: 'Raster' })).toBeFalsy()
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND({ bodyColumns: 50 }) })
+  expect(await m.find({ type: 'Svg' })).toBeFalsy()
   expect(await m.find({ text: /Lv\.\d+ .* 오늘 \+/ })).toBeTruthy()
 })
 
 test('밴드가 낮아도 한 줄로 바뀐다', async ($, on) => {
   beneath(on, { now: NOON })
   await start($)
-  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND({ maxRows: 5, scroll: { offset: 0, bodyRows: 5 } }) })
-  expect(await m.find({ type: 'Raster' })).toBeFalsy()
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND({ maxRows: 5, scroll: { offset: 0, bodyRows: 5 } }) })
+  expect(await m.find({ type: 'Svg' })).toBeFalsy()
 })
 
 test('다른 Mod 그림을 가리지 않는다', async ($, on) => {
   beneath(on, { now: NOON, bottomBand: '다른 모드' })
   await start($)
-  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
   expect(await m.find({ text: '다른 모드' })).toBeTruthy()
   expect(await m.find({ text: /수련생/ })).toBeTruthy()
 })
@@ -243,32 +246,36 @@ test('/blade 로 카드 창이 열린다', async ($, on) => {
   expect(await m.find({ text: /모험 일지/ })).toBeTruthy()
 })
 
-test('카드 창: 터미널은 32칸 × 16줄', async ($, on) => {
+test('터미널 카드는 큰 창에서만 장면', async ($, on) => {
   beneath(on, { now: NOON })
   await start($)
-  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'Pane', requestId: 'spellblade', props: PANE() })
-  const r = JSON.stringify(await m.find({ type: 'Raster' }))
-  expect(r).toMatch(/"columns":32/)
-  expect(r).toMatch(/"rows":16/)
+  const big = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'Pane', requestId: 'spellblade', props: PANE({ bodyColumns: 160, scroll: { offset: 0, bodyRows: 50 } }) })
+  const r = JSON.stringify(await big.find({ type: 'Raster' }))
+  expect(r).toMatch(/"columns":160/)
+  expect(r).toMatch(/"rows":32/)
+  await big.unmount()
+  const small = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'Pane', requestId: 'spellblade', props: PANE() })
+  expect(await small.find({ type: 'Raster' })).toBeFalsy()
+  expect(await small.find({ text: /승급의 길/ })).toBeTruthy()
 })
 
-test('터미널 밴드 그림은 상반신 32칸 × 8줄', async ($, on) => {
+test('데스크톱 카드 장면은 480×192', async ($, on) => {
   beneath(on, { now: NOON })
   await start($)
-  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
-  const r = JSON.stringify(await m.find({ type: 'Raster' }))
-  expect(r).toMatch(/"columns":32/)
-  expect(r).toMatch(/"rows":8/)
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'Pane', requestId: 'spellblade', props: PANE() })
+  const svg = JSON.stringify(await m.find({ type: 'Svg' }))
+  expect(svg).toMatch(/"width":480/)
+  expect(svg).toMatch(/"height":192/)
 })
 
 test('일하는 동안 영창 프레임이 바뀐다', async ($, on) => {
   const { clock } = beneath(on, { now: NOON })
-  await start($)
+  await start($, 'desktop')
   await $.turn.start({ text: 'hi', turnId: 't' })
-  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
-  const first = JSON.stringify(await m.find({ type: 'Raster' }))
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
+  const first = JSON.stringify(await m.find({ type: 'Svg' }))
   await clock.advance(400)
-  const second = JSON.stringify(await m.find({ type: 'Raster' }))
+  const second = JSON.stringify(await m.find({ type: 'Svg' }))
   expect(second).not.toBe(first)
   expect(await m.find({ text: /마법을 두르는 중/ })).toBeTruthy()
 })
@@ -278,7 +285,7 @@ test('턴이 끝나면 승리 문구', async ($, on) => {
   answerStep(on, 34_000)
   await start($)
   await oneTurn($)
-  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
   expect(await m.find({ text: /✓ 승리 \+34 XP/ })).toBeTruthy()
 })
 
@@ -666,8 +673,8 @@ test('한도가 없으면 체력 · 마나 줄을 숨긴다', async ($, on) => {
 test('그림판은 10줄 이상에서만', async ($, on) => {
   beneath(on, { now: NOON })
   await start($)
-  const low = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND({ maxRows: 9, scroll: { offset: 0, bodyRows: 9 } }) })
-  expect(await low.find({ type: 'Raster' })).toBeFalsy()
+  const low = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND({ maxRows: 9, scroll: { offset: 0, bodyRows: 9 } }) })
+  expect(await low.find({ type: 'Svg' })).toBeFalsy()
   const ok = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND({ maxRows: 10, scroll: { offset: 0, bodyRows: 10 } }) })
   expect(await ok.find({ type: 'Svg' })).toBeTruthy()
 })
@@ -703,6 +710,27 @@ test('탭 버튼이 셋', async ($, on) => {
   await start($)
   const m = await openCard($)
   for (const key of ['tab1', 'tab2', 'tab3']) expect(await m.find({ key })).toBeTruthy()
+})
+
+test('탭 버튼 이름에 대괄호가 없다', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const m = await openCard($)
+  expect(JSON.stringify(await m.find({ key: 'tab1' }))).toMatch(/"label":"상태"/)
+})
+
+test('이름표에 이름이 들어간다', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($, 'desktop')
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
+  expect(JSON.stringify(await m.find({ type: 'Svg' }))).toMatch(/렌/)
+})
+
+test('상태 탭에 몬스터 체력', async ($, on) => {
+  beneath(on, { now: NOON })
+  await start($)
+  const m = await openCard($)
+  expect(await m.find({ text: /🟢 슬라임 HP 300\/300/ })).toBeTruthy()
 })
 
 test('2 를 누르면 의뢰 탭', async ($, on) => {
@@ -758,7 +786,7 @@ test('/blade 로 다시 열면 상태 탭부터', async ($, on) => {
 
 // ---- 2차 Task 11 + 크기 통일: 데스크톱 그림 ----
 
-test('데스크톱 밴드 그림 크기는 자세가 바뀌어도 같다', async ($, on) => {
+test('데스크톱 밴드 장면은 320×128 이고 상태가 바뀌어도 같다', async ($, on) => {
   const { clock } = beneath(on, { now: NOON })
   toolMode = 'ok'
   answerTools(on)
@@ -766,7 +794,7 @@ test('데스크톱 밴드 그림 크기는 자세가 바뀌어도 같다', async
   const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
   const size = async () => {
     const svg = JSON.stringify(await m.find({ type: 'Svg' }))
-    return [(svg.match(/"width":(\d+)/) ?? [])[1], (svg.match(/"height":(\d+)/) ?? [])[1], /"isInteractive":true/.test(svg)].join('|')
+    return [(svg.match(/"width":(\d+)/) ?? [])[1], (svg.match(/"height":(\d+)/) ?? [])[1]].join('×')
   }
   const idle = await size()
   await $.turn.start({ text: 'hi', turnId: 't' })
@@ -774,18 +802,11 @@ test('데스크톱 밴드 그림 크기는 자세가 바뀌어도 같다', async
   const casting = await size()
   await $.tool.call({ tool: 'Bash', command: 'ls' } as any)
   const slashing = await size()
-  expect(idle).toMatch(/^\d+\|\d+\|/)
-  expect([casting, slashing]).toEqual([idle, idle])
-})
-
-test('데스크톱 기본은 프레임 교체(영창이 0.4초마다 바뀐다)', async ($, on) => {
-  const { clock } = beneath(on, { now: NOON })
-  await start($, 'desktop')
-  await $.turn.start({ text: 'hi', turnId: 't' })
-  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
-  const first = JSON.stringify(await m.find({ type: 'Svg' }))
-  await clock.advance(400)
-  expect(JSON.stringify(await m.find({ type: 'Svg' }))).not.toBe(first)
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  await clock.advance(121_000)
+  const resting = await size()
+  expect(await m.find({ text: /모닥불 앞에서 쉬는 중/ })).toBeTruthy()
+  expect([idle, casting, slashing, resting]).toEqual(['320×128', '320×128', '320×128', '320×128'])
 })
 
 // ---- 2차 Task 12: /blade title ----
@@ -825,8 +846,8 @@ test('얻은 칭호가 없으면 알려 준다', async ($, on) => {
 test('그림판은 84칸 이상에서만', async ($, on) => {
   beneath(on, { now: NOON })
   await start($)
-  const narrow = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND({ bodyColumns: 83 }) })
-  expect(await narrow.find({ type: 'Raster' })).toBeFalsy()
+  const narrow = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND({ bodyColumns: 83 }) })
+  expect(await narrow.find({ type: 'Svg' })).toBeFalsy()
   const wide = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND({ bodyColumns: 84 }) })
   expect(await wide.find({ type: 'Svg' })).toBeTruthy()
 })
@@ -1138,7 +1159,7 @@ test('/clear 뒤 배낭 용량은 다음 measure 전까지 비운다', async ($,
 test('쉬는 동안에도 리셋 남은 시간이 바뀐다', async ($, on) => {
   const { clock } = beneath(on, { now: NOON, limits: [{ kind: 'seven_day', percentUsed: 30, resetsAt: new Date(NOON + 2 * 3_600_000).toISOString() }] })
   await start($)
-  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
   await clock.advance(31 * 60_000) // 30분 넘게 쉬어 자는 자세(자세 · 문구가 더 바뀌지 않음)
   expect(await m.find({ text: /1:29/ })).toBeTruthy()
   await clock.advance(10 * 60_000)

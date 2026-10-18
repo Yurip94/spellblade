@@ -1,14 +1,12 @@
-import { dimMagic, frameFor, silhouette } from './art.ts'
-import { MAX_LEVEL, STAGES, STAT_MAX, type StageId } from './balance.ts'
+import { MAX_LEVEL, STAGES, STAT_MAX } from './balance.ts'
+import { heroFrame, heroSilhouette, tierOf } from './hero3.ts'
 import { ZERO, type LogEntry, type Sum } from './ledger.ts'
 import type { Gauge } from './limits.ts'
 import { equipmentAt, xpForLevel, type Progress } from './progress.ts'
 import { TITLES, type TitleId } from './progression.ts'
 import type { Quest } from './quests.ts'
-import { cropTop } from './sprites.ts'
-import type { Pose } from './status.ts'
-import { gridToRaster } from './to-raster.ts'
-import { framesToSvg, gridToSvg } from './to-svg.ts'
+import { rgbToRaster, rgbToSvg, toRgb, type RgbGrid } from './rgb.ts'
+import { nameTagSvg } from './scene.ts'
 import { cacheReuse, comma, formulaLine, shortNum } from './tokens.ts'
 
 export type { LogEntry }
@@ -39,6 +37,7 @@ export type CardView = {
   equipment: ReturnType<typeof equipmentAt>
   stats: { str: number; int: number; agi: number; luk: number }
   titles: readonly TitleId[]
+  monster: { name: string; emoji: string; hp: number; maxHp: number } | null // 지금 싸우는 몬스터
 }
 
 // 비어 있는 화면 데이터 (테스트 · 데모가 필요한 칸만 덮어쓴다)
@@ -47,13 +46,14 @@ export function baseView(p: Progress): CardView {
     name: '렌', title: null, progress: p, todayXp: 0, weekXp: 0, todaySwings: 0, line: '쉬는 중', log: [], isDemo: false,
     limits: { hp: null, mp: null }, resets: { hp: '', mp: '' }, quests: [], streak: 0, context: null,
     combo: 0, bestCombo: 0, banner: null, turn: null, session: null, today: ZERO, equipment: equipmentAt(p.level), stats: { str: 1, int: 1, agi: 1, luk: 1 }, titles: [],
+    monster: null,
   }
 }
 
 export type BandMode = 'panel' | 'line' | 'off'
 export type Motion = 'smooth' | 'frames'
 
-// userConfig.motion: frames(기본, 0.4초마다 그림 교체) · smooth(데스크톱은 SVG 안에서 움직임)
+// userConfig.motion: frames(기본) · smooth. 3차 장면에서는 쓰지 않는다(설정만 남겨 둔다)
 export function motionOf(v: unknown): Motion {
   return v === 'smooth' ? 'smooth' : 'frames'
 }
@@ -85,11 +85,13 @@ function gaugeText(icon: string, g: Gauge, reset: string, width: number): string
   return `${icon} ${xpBar(g.left / 100, width)} ${g.left}%${reset ? ` ${reset}` : ''}`
 }
 
-// 밴드 한 줄: "⚔️ 렌 Lv.15 ▓░░░░░░░ 14% · ❤️62 🔷41 · 오늘 +1,240"
+// 밴드 한 줄: "⚔️ 렌 Lv.15 ▓░░░░░░░ 14% · ❤️62 🔷41 · 🟢 슬라임 ▓▓░ · 오늘 +1,240"
 export function bandLineText(v: CardView): string {
   const p = v.progress
   const gauges = [v.limits.hp ? `❤️${v.limits.hp.left}` : '', v.limits.mp ? `🔷${v.limits.mp.left}` : ''].filter(Boolean).join(' ')
-  return [`${p.stage.emoji} ${v.name} Lv.${p.level} ${xpBar(p.ratio, 8)} ${percent(p.ratio)}%`, gauges, `오늘 +${comma(v.todayXp)}`].filter(Boolean).join(' · ')
+  const m = v.monster
+  const monster = m ? `${m.emoji} ${m.name} ${xpBar(m.hp / m.maxHp, 3)}` : ''
+  return [`${p.stage.emoji} ${v.name} Lv.${p.level} ${xpBar(p.ratio, 8)} ${percent(p.ratio)}%`, gauges, monster, `오늘 +${comma(v.todayXp)}`].filter(Boolean).join(' · ')
 }
 
 // ---- 그림판 · 카드 ----
@@ -99,39 +101,36 @@ export function bandLineText(v: CardView): string {
 type Make = (props: Record<string, unknown>) => unknown
 export type Els = { Box: Make; Text: Make; Button?: Make; Svg?: Make; Raster?: Make }
 
-// 데스크톱 그림 크기(도트 하나의 px) — 자세와 상관없이 고정
-const SVG_PIXEL = { band: 4, pane: 6 } as const
+// 데스크톱 장면의 점 하나 크기(px): 밴드 2 · 카드 3 — 상태와 상관없이 고정(320 × 128 · 480 × 192)
+const SCENE_PIXEL = { band: 2, pane: 3 } as const
 
-// 터미널은 Raster(▀ 반칸), 그 밖은 Svg. 터미널의 resolve 도 Svg 를 내주지만 그려지지 않으므로 표면으로 고른다
-// 데스크톱 smooth: 짝이 되는 자세는 같은 애니메이션 SVG 를 내서 다시 그려도 처음부터 시작하지 않는다
-function animated(stage: StageId, pose: Pose): { frames: ReturnType<typeof frameFor>[]; ms: number | number[] } | null {
-  if (pose === 'cast1' || pose === 'cast2') return { frames: [frameFor(stage, 'cast1'), frameFor(stage, 'cast2')], ms: 400 }
-  if (pose === 'idle' || pose === 'blink') return { frames: [frameFor(stage, 'idle'), frameFor(stage, 'blink')], ms: [2600, 400] }
-  if (pose === 'levelup') return { frames: [frameFor(stage, 'levelup', 0), frameFor(stage, 'levelup', 1)], ms: 400 }
-  return null
+// 같은 장면 격자(sceneGrid 가 캐시한 것)는 SVG · Raster 도 한 번만 만든다 — 모닥불처럼 두 장면을 번갈아도 다시 계산하지 않게
+const svgMemo = new WeakMap<RgbGrid, Map<string, string>>()
+const rasterMemo = new WeakMap<RgbGrid, ReturnType<typeof rgbToRaster>>()
+
+function sceneSvg(grid: RgbGrid, px: number, name: string): string {
+  let byName = svgMemo.get(grid)
+  if (!byName) svgMemo.set(grid, (byName = new Map()))
+  const key = `${px}|${name}`
+  let svg = byName.get(key)
+  if (svg === undefined) byName.set(key, (svg = rgbToSvg(grid, px, nameTagSvg(name, px))))
+  return svg
 }
 
-// 데스크톱 그림은 모든 자세가 같은 크기(width · height 고정) · 같은 방식(smooth 면 모두 움직이는 SVG, 아니면 모두 보통 그림)
-// dim: 마나가 낮을 때 영창 빛을 어둡게
-export function heroArt(el: Els, surface: string, stage: StageId, pose: Pose, size: 'band' | 'pane', frame: 0 | 1 = 0, smooth = false, dim = false): unknown {
-  const shade = (g: ReturnType<typeof frameFor>) => (dim ? dimMagic(g) : g)
-  const f = shade(frameFor(stage, pose, frame))
-  const alt = `${STAGES.find(s => s.id === stage)?.name ?? ''} 마검사`
+// 장면 그림. 데스크톱은 Svg(이름표 포함), 터미널은 Raster(▀ 반칸, 큰 카드에서만 부른다).
+// 터미널의 resolve 도 Svg 를 내주지만 그려지지 않으므로 표면으로 고른다
+export function sceneArt(el: Els, surface: string, grid: RgbGrid, name: string, size: 'band' | 'pane'): unknown {
   if (surface === 'terminal') {
     if (!el.Raster) return null
-    // 밴드는 상반신(위 16도트 = 8줄), 카드는 전신(32칸 × 16줄)
-    const grid = size === 'band' ? cropTop(f.grid, 16) : f.grid
-    return el.Raster(gridToRaster(grid, f.palette, `hero-${size}`))
+    let cells = rasterMemo.get(grid)
+    if (!cells) rasterMemo.set(grid, (cells = rgbToRaster(grid, 'scene')))
+    return el.Raster(cells)
   }
   if (!el.Svg) return null
-  const px = SVG_PIXEL[size]
-  const box = { width: f.grid[0].length * px, height: f.grid.length * px }
-  if (smooth) {
-    const anim = animated(stage, pose)
-    const source = anim ? framesToSvg(anim.frames.map(shade), px, anim.ms) : gridToSvg(f.grid, f.palette, px)
-    return el.Svg({ source, alt, ...box, isInteractive: true })
-  }
-  return el.Svg({ source: gridToSvg(f.grid, f.palette, px), alt, ...box })
+  const px = SCENE_PIXEL[size]
+  const width = (grid[0]?.length ?? 0) * px
+  const height = grid.length * px
+  return el.Svg({ source: sceneSvg(grid, px, name), alt: `${name} — 마검사 장면`, width, height })
 }
 
 const text = (el: Els, children: string, extra: Record<string, unknown> = {}) => el.Text({ wrap: 'truncate-end', children: [children], ...extra })
@@ -206,6 +205,7 @@ function statusTab(el: Els, v: CardView, road?: unknown[]): unknown[] {
         text(el, `${p.stage.emoji} ${v.title ? `「${v.title}」 ` : ''}${v.name} · ${p.stage.name} ${levelLabel(p)}`, { bold: true }),
         text(el, xpLine(p, 20)),
         text(el, gauges ?? ' '),
+        ...(v.monster ? [text(el, `${v.monster.emoji} ${v.monster.name} HP ${comma(v.monster.hp)}/${comma(v.monster.maxHp)}`)] : []),
         text(el, `오늘 +${comma(v.todayXp)} XP · 이번 주 +${comma(v.weekXp)} XP · 오늘 베기 ${comma(v.todaySwings)}번`),
         text(el, `지금: ${v.line}`, { dimColor: true }),
       ],
@@ -280,7 +280,7 @@ function recordTab(el: Els, v: CardView): unknown[] {
 export function card(el: Els, art: unknown, v: CardView, tab: Tab = 1, onTab: (t: Tab) => void = () => {}, road?: unknown[]): unknown {
   const tabs = ([1, 2, 3] as const).map(t =>
     el.Button
-      ? el.Button({ key: `tab${t}`, label: `[${t}] ${['상태', '의뢰', '기록'][t - 1]}`, hotkey: String(t), variant: t === tab ? 'primary' : 'secondary', onPress: () => onTab(t) })
+      ? el.Button({ key: `tab${t}`, label: ['상태', '의뢰', '기록'][t - 1], hotkey: String(t), variant: t === tab ? 'primary' : 'secondary', onPress: () => onTab(t) })
       : text(el, `[${t}] ${['상태', '의뢰', '기록'][t - 1]}`, t === tab ? { bold: true } : { dimColor: true }),
   )
   const body = tab === 1 ? statusTab(el, v, road) : tab === 2 ? questTab(el, v) : recordTab(el, v)
@@ -296,13 +296,13 @@ export function card(el: Els, art: unknown, v: CardView, tab: Tab = 1, onTab: (t
   })
 }
 
-// 데스크톱 승급의 길: 단계마다 작은 그림, 아직 못 간 단계는 실루엣
-export function stageRoad(el: Els, surface: string, current: StageId): unknown[] {
+// 데스크톱 승급의 길: 단계 첫 레벨의 장비 모습을 1px 로, 아직 못 간 단계는 실루엣
+export function stageRoad(el: Els, surface: string, level: number): unknown[] {
   if (surface === 'terminal' || !el.Svg) return []
-  const at = STAGES.findIndex(s => s.id === current)
-  return STAGES.map((s, i) => {
-    const f = frameFor(s.id, 'idle')
-    const shown = i <= at ? f : silhouette(f)
-    return el.Svg!({ source: gridToSvg(shown.grid, shown.palette, 2), alt: i <= at ? s.name : `${s.name} (잠김)` })
+  return STAGES.map(s => {
+    const f = heroFrame(tierOf(s.minLevel), 'idle')
+    const open = level >= s.minLevel
+    const g = toRgb(open ? f : heroSilhouette(f))
+    return el.Svg!({ source: rgbToSvg(g, 1), alt: open ? s.name : `${s.name} (잠김)`, width: g[0].length, height: g.length })
   })
 }

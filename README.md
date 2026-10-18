@@ -58,14 +58,14 @@ claude plugin update spellblade@spellblade
 | `/blade` | 마검사 카드 창 열기 — 숫자 1 · 2 · 3 으로 탭, Esc 로 닫기 |
 | `/blade name <이름>` | 이름 바꾸기 (1~12자) |
 | `/blade title [칭호]` | 얻은 칭호 보기 · 이름 앞에 달 칭호 고르기 |
-| `/blade demo` | 30초 동안 5단계 × 자세를 차례로 보여 주기 (저장소는 안 바꿈) |
+| `/blade demo` | 29초 동안 12단계 × [베기 · 캐스팅 실패 · 모닥불] 을 차례로 보여 주기 (저장소는 안 바꿈) |
 | `/blade reset` | 한 번 더 물은 뒤 경험치 · 일지를 지우고 처음부터 |
 
 `/blade` 가 내장 명령과 겹치는 버전에서는 `/spellblade` 로 등록된다.
 
 설정(`/config`):
 - `band`: `panel`(기본, 그림판) · `line`(한 줄) · `off`(밴드에 안 그림)
-- `motion`: `frames`(기본, 0.4초마다 그림 교체) · `smooth`(데스크톱은 SVG 안에서 부드럽게 — 데스크톱 앱에서 그림 크기가 흔들려 보이면 `frames` 로)
+- `motion`: 3차에서는 효과 없음(2.x 설정을 그대로 두어도 괜찮다)
 
 ## 개발
 

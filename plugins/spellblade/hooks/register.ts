@@ -7,12 +7,15 @@ import { limitsOf, liveGauge, resetText, type Gauge } from './lib/limits.ts'
 import { earnedTitles, longestStreak, statsOf, streakOf, TITLES, titleName, type Lifetime } from './lib/progression.ts'
 import { questReward, questStatus } from './lib/quests.ts'
 import { shortNum } from './lib/tokens.ts'
-import { cleanUsage, equipmentAt, levelOf, progressOf, stageOf, weightOf, xpForLevel } from './lib/progress.ts'
+import { cleanUsage, equipmentAt, levelOf, progressOf, stageOf, tierOf, weightOf, xpForLevel } from './lib/progress.ts'
 import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
 import { gridToRaster } from './lib/to-raster.ts'
 import { gridToSvg } from './lib/to-svg.ts'
-import { demoFrame, legacyPose, poseAt, withFlash, type Activity, type Mood } from './lib/status.ts'
-import { bandLineText, bandModeOf, bandPanel, baseView, card, heroArt, motionOf, spinnerSuffix, stageRoad, type CardView, type Els, type Tab } from './lib/views.ts'
+import { newBattle, type Battle } from './lib/battle.ts'
+import { MONSTERS } from './lib/monsters.ts'
+import { sceneGrid, sceneKey, type SceneInput } from './lib/scene.ts'
+import { demoFrame, poseAt, withFlash, type Activity, type Mood } from './lib/status.ts'
+import { bandLineText, bandModeOf, bandPanel, baseView, card, sceneArt, spinnerSuffix, stageRoad, type CardView, type Els, type Tab } from './lib/views.ts'
 
 // ---- 모듈 상태 (session.start 의 load 가 매번 새로 채운다) ----
 
@@ -49,8 +52,7 @@ let lastTurn: CardView['turn'] = null
 let banner: { text: string; until: number } | null = null
 let tab: Tab = 1 // 카드 창 탭
 let surface = 'terminal' // session.start 가 알려 준 표면(데스크톱에선 null 일 수 있다)
-let renderSurface: string | null = null // 실제로 그린 표면(ui.render 의 e.surface)
-let smooth = false // 데스크톱을 SVG 안에서 움직일지(userConfig.motion, 기본 frames)
+let battle: Battle | null = null // 지금 싸우는 몬스터(불러올 때 지금 장비 단계로 만든다)
 let levelSeen = 0 // 이 창이 이미 본 레벨 — 레벨업 알림을 한 번만 내려고 먼저 차지한다
 let questsFrom = '' // 이 날부터 의뢰 보상을 센다(2.0 을 처음 켠 날 — 지난날 소급 없음)
 let sessionW = 0
@@ -207,8 +209,8 @@ function snapshot(): CardView {
   const t = todaySum()
   const demo = demoNow()
   if (demo) {
-    // 데모 단계의 첫 레벨(단계 0 은 Lv.1)
-    return { ...baseView(progressOf(xpForLevel(Math.max(1, demo.tier * TIER_LEVELS)))), name, line: demo.line, log, isDemo: true }
+    // 데모 단계의 첫 레벨(단계 0 은 Lv.1)과 그 단계 몬스터
+    return { ...baseView(progressOf(xpForLevel(Math.max(1, demo.tier * TIER_LEVELS)))), name, line: demo.line, log, isDemo: true, monster: monsterView(newBattle(demo.tier, 0)) }
   }
   const progress = progressOf(totalXp())
   const life = lifetime()
@@ -237,23 +239,34 @@ function snapshot(): CardView {
     equipment: equipmentAt(progress.level),
     stats: statsOf(life),
     titles,
+    monster: battle ? monsterView(battle) : null,
   }
 }
 
-// 지금 그릴 단계 · 자세. 바뀔 때만 다시 그리려고 열쇠도 같이
-function drawState(): { stage: CardView['progress']['stage']; pose: ReturnType<typeof legacyPose>; frame: 0 | 1; key: string } {
+function monsterView(b: Battle): CardView['monster'] {
+  const m = MONSTERS[b.tier]
+  return { name: m.name, emoji: m.emoji, hp: b.hp, maxHp: b.maxHp }
+}
+
+// 지금 그릴 장면. 바뀔 때만 다시 그리려고 열쇠도 같이(장면 열쇠 + 밴드 글)
+function sceneState(): { input: SceneInput; key: string } {
   const v = snapshot()
   const demo = demoNow()
   const scene = demo ?? poseAt(activity, clockNow, mood())
-  const pose = legacyPose(scene.pose)
-  const line = scene.line
-  // 레벨업 빛기둥은 두 프레임을 번갈아
-  const frame: 0 | 1 = pose === 'levelup' && Math.floor(clockNow / MS.castFrame) % 2 === 1 ? 1 : 0
-  // 데스크톱 smooth 는 SVG 가 스스로 움직이므로 짝 자세가 바뀌어도 다시 그리지 않는다
-  const svgMoves = smooth && (renderSurface ?? surface) !== 'terminal'
-  const keyPose = svgMoves ? ({ cast2: 'cast1', blink: 'idle' } as Record<string, string>)[pose] ?? pose : pose
-  const keyFrame = svgMoves ? 0 : frame
-  return { stage: v.progress.stage, pose, frame, key: `${demo ? 'demo' : ''}|${v.progress.stage.id}|${keyPose}|${keyFrame}|${line}|${v.progress.xp}|${v.banner ?? ''}` }
+  // 빛기둥(0.4초) · 모닥불(0.8초, 잠들면 멈춤)만 두 프레임을 번갈아 — 그 밖에는 0 이라 그것 때문에 다시 그리지 않는다
+  const beat = scene.pose === 'levelup' ? MS.castFrame : scene.mode === 'rest' && scene.pose !== 'sleep' ? MS.fireFrame : 0
+  const frame: 0 | 1 = beat && Math.floor(clockNow / beat) % 2 === 1 ? 1 : 0
+  const input: SceneInput = {
+    mode: scene.mode,
+    tier: demo ? demo.tier : tierOf(v.progress.level),
+    pose: scene.pose,
+    frame,
+    battle: demo ? newBattle(demo.tier, 0) : battle,
+    now: clockNow,
+    dimMagic: magicDim(scene.pose),
+  }
+  const m = v.monster
+  return { input, key: `${demo ? 'demo' : ''}|${sceneKey(input)}|${scene.line}|${v.progress.xp}|${v.banner ?? ''}|${v.name}|${m ? `${m.hp}/${m.maxHp}` : ''}` }
 }
 
 async function readAll($: EngineInterface): Promise<[string, unknown][]> {
@@ -312,6 +325,7 @@ async function loadNow($: EngineInterface): Promise<void> {
 
   // 이 창이 켜지기 전에 오른 레벨은 다시 알리지 않는다
   const levelNow = levelOf(totalXp())
+  battle = newBattle(tierOf(levelNow), totalXp())
   levelSeen = Math.max(isProfile(profile) ? profile.lastLevel : 0, levelNow)
 
   // 처음 켤 때는 이미 이룬 것을 조용히 기록만 한다(지난 레벨 · 칭호 · 의뢰를 한꺼번에 알리지 않으려고)
@@ -392,7 +406,7 @@ async function refreshNow($: EngineInterface): Promise<void> {
 async function tick($: EngineInterface): Promise<void> {
   const now = await $.clock.now()
   clockNow = now
-  const key = drawState().key
+  const key = sceneState().key
   if (key !== lastDrawnKey) {
     lastDrawnKey = key
     $.ui.invalidate('ui.render')
@@ -631,7 +645,6 @@ function startTimer($: EngineInterface): void {
 
 export const register: Register = (on, options) => {
   const band = bandModeOf(options.band)
-  smooth = motionOf(options.motion) === 'smooth'
 
   on('session.start', async ($, e, next) => {
     const out = await next(e)
@@ -786,12 +799,9 @@ export const register: Register = (on, options) => {
     clockNow = await $.clock.now() // 그리는 순간의 시각(배너 · 자세가 틱을 기다리지 않게)
     const el = $.ui.resolve(e) as unknown as Els
     const v = snapshot()
-    const { stage, pose, frame } = drawState()
-    // 그림판은 8줄 그림 + 다른 Mod 줄 여유 2줄 → 10줄 이상에서만
-    renderSurface = e.surface
-    // 그림판: 그림 32칸 + 글 50칸 → 84칸 이상, 8줄 그림 + 다른 Mod 줄 여유 → 10줄 이상
-    const roomy = band === 'panel' && e.props.bodyColumns >= 84 && e.props.maxRows >= 10
-    const art = roomy ? heroArt(el, e.surface, stage.id, pose, 'band', frame, smooth, magicDim(pose)) : null
+    // 터미널은 언제나 한 줄. 데스크톱 그림판(장면 320 × 128 + 글)은 84칸 · 10줄 이상에서만
+    const roomy = e.surface !== 'terminal' && band === 'panel' && e.props.bodyColumns >= 84 && e.props.maxRows >= 10
+    const art = roomy ? sceneArt(el, e.surface, sceneGrid(sceneState().input), v.name, 'band') : null
     const mine = art ? bandPanel(el, art, v) : el.Text({ wrap: 'truncate-end', children: [bandLineText(v)] })
     return el.Box({ flexDirection: 'column', children: [mine, below] }) as any
   })
@@ -800,13 +810,15 @@ export const register: Register = (on, options) => {
     if (e.requestId === PANE) {
       clockNow = await $.clock.now()
       const el = $.ui.resolve(e) as unknown as Els
-      const { stage, pose, frame } = drawState()
+      const v = snapshot()
       const onTab = (t: Tab) => {
         tab = t
         $.ui.invalidate('ui.render')
       }
-      renderSurface = e.surface
-      return card(el, heroArt(el, e.surface, stage.id, pose, 'pane', frame, smooth, magicDim(pose)), snapshot(), tab, onTab, stageRoad(el, e.surface, stage.id)) as any
+      // 데스크톱은 장면 480 × 192, 터미널은 장면(160칸 × 32줄)이 들어갈 만큼 큰 창에서만
+      const big = e.surface !== 'terminal' || (e.props.bodyColumns >= 160 && e.props.scroll.bodyRows >= 44)
+      const art = big ? sceneArt(el, e.surface, sceneGrid(sceneState().input), v.name, 'pane') : null
+      return card(el, art, v, tab, onTab, stageRoad(el, e.surface, v.progress.level)) as any
     }
     if (e.requestId !== PROBE) return next(e)
     const el: any = $.ui.resolve(e)
@@ -829,7 +841,7 @@ export const register: Register = (on, options) => {
       clockNow = await $.clock.now()
       demoStartedAt = clockNow
       $.ui.invalidate('ui.render')
-      return { text: '30초 동안 다섯 단계를 차례로 보여 줄게요' }
+      return { text: '29초 동안 열두 단계를 차례로 보여 줄게요' }
     }
     if (word === 'reset') return { text: await reset($) }
     if (word === 'probe') {

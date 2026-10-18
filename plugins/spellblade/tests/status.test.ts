@@ -1,6 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import type { HeroPose } from '../hooks/lib/hero3.ts'
-import { currentFlash, demoFrame, legacyPose, poseAt, thenFlash, withFlash, type Activity } from '../hooks/lib/status.ts'
+import { currentFlash, demoFrame, poseAt, thenFlash, withFlash, type Activity } from '../hooks/lib/status.ts'
 
 const A = (o: Partial<Activity> = {}): Activity => ({ working: false, lastActiveAt: 0, flash: null, queued: null, ...o })
 
@@ -160,8 +159,4 @@ test('턴이 끝나고 2분 동안은 전투, 그 뒤 모닥불', async () => {
 
 test('마나 0 이면 일하는 중에도 모닥불', async () => {
   expect(poseAt(A({ working: true }), 0, { hpLeft: 50, mpLeft: 0, mpReset: '2:14' })).toEqual({ pose: 'sit', line: '마나 소진 — 2:14 뒤 회복', mode: 'rest' })
-})
-
-test('2.x 그림 길 임시 자세(Task 8 에서 지운다)', async () => {
-  expect((['castHit', 'castFail', 'sit', 'slash', 'sleep'] as HeroPose[]).map(legacyPose)).toEqual(['cast1', 'cast1', 'sleep', 'slash', 'sleep'])
 })

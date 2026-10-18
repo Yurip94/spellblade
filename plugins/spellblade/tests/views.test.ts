@@ -1,6 +1,8 @@
 import { expect, test } from 'claude-code/testing'
+import { newBattle } from '../hooks/lib/battle.ts'
 import { progressOf } from '../hooks/lib/progress.ts'
-import { bandLineText, bandModeOf, bandPanel, baseView, comma, heroArt, levelLabel, motionOf, spinnerSuffix, xpBar, type CardView } from '../hooks/lib/views.ts'
+import { sceneGrid } from '../hooks/lib/scene.ts'
+import { bandLineText, bandModeOf, bandPanel, baseView, comma, levelLabel, motionOf, sceneArt, spinnerSuffix, xpBar, type CardView } from '../hooks/lib/views.ts'
 
 test('천 단위 쉼표', async () => {
   expect(comma(1240)).toBe('1,240')
@@ -63,30 +65,20 @@ const fakeEls = {
   Raster: (p: Record<string, unknown>) => ({ type: 'Raster', ...p }),
 }
 
-test('데스크톱 그림은 자세와 상관없이 같은 크기 · 같은 방식', async () => {
-  for (const smooth of [false, true]) {
-    const shapes = (['idle', 'blink', 'cast1', 'cast2', 'slash', 'victory', 'hit', 'levelup', 'sleep'] as const).map(p => {
-      const a = heroArt(fakeEls, 'desktop', 'spellblade', p, 'band', 0, smooth) as Record<string, unknown>
-      return JSON.stringify([a.width, a.height, a.isInteractive ?? false])
-    })
-    expect(new Set(shapes).size).toBe(1)
-    const first = JSON.parse(shapes[0])
-    expect(first[0]).toBeGreaterThan(0)
-    expect(first[0]).toBe(first[1])
-  }
+test('sceneArt: 데스크톱은 장면 Svg(밴드 2px · 카드 3px)와 이름표, 터미널 카드는 Raster', async () => {
+  const g = sceneGrid({ mode: 'battle', tier: 0, pose: 'idle', frame: 0, battle: newBattle(0, 0), now: 0, dimMagic: false })
+  const band = sceneArt(fakeEls, 'desktop', g, '<렌>', 'band') as Record<string, unknown>
+  expect([band.type, band.width, band.height]).toEqual(['Svg', 320, 128])
+  expect(String(band.source)).toContain('&lt;렌&gt;')
+  const pane = sceneArt(fakeEls, 'desktop', g, '렌', 'pane') as Record<string, unknown>
+  expect([pane.width, pane.height]).toEqual([480, 192])
+  const term = sceneArt(fakeEls, 'terminal', g, '렌', 'pane') as Record<string, unknown>
+  expect([term.type, term.columns, term.rows]).toEqual(['Raster', 160, 32])
 })
 
-test('부드러운 움직임에서 짝 자세는 같은 SVG', async () => {
-  const a = heroArt(fakeEls, 'desktop', 'knight', 'cast1', 'band', 0, true) as Record<string, string>
-  const b = heroArt(fakeEls, 'desktop', 'knight', 'cast2', 'band', 0, true) as Record<string, string>
-  expect(a.source).toBe(b.source)
-  expect(a.source).toMatch(/<animate/)
-})
-
-test('마나가 낮으면 데스크톱 영창 빛도 어두워진다', async () => {
-  const bright = heroArt(fakeEls, 'desktop', 'spellblade', 'cast1', 'band', 0, false, false) as Record<string, string>
-  const dim = heroArt(fakeEls, 'desktop', 'spellblade', 'cast1', 'band', 0, false, true) as Record<string, string>
-  expect(dim.source).not.toBe(bright.source)
+test('밴드 한 줄에 몬스터 체력', async () => {
+  const v = { ...view({ xp: 12000, hp: 62 }), monster: { name: '슬라임', emoji: '🟢', hp: 150, maxHp: 300 } }
+  expect(bandLineText(v)).toBe('⚔️ 렌 Lv.15 ▓░░░░░░░ 14% · ❤️62 · 🟢 슬라임 ▓▓░ · 오늘 +0')
 })
 
 // 밴드 오른쪽 글줄 수
