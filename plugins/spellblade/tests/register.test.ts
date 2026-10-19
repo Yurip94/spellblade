@@ -1422,3 +1422,12 @@ test('Esc 뒤 새 턴에 도착한 늦은 오류도 그 턴을 깨지 않는다'
   await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
   expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ clean: 2 })
 })
+
+test('자정에 다시 불러와도 쉬던 마검사는 그대로 쉰다', async ($, on) => {
+  const { clock } = beneath(on, { now: local(2026, 9, 16, 23, 20) })
+  await start($)
+  await clock.advance(31 * 60_000) // 23:51 — 잠
+  expect(await bandText($)).toMatch(/Zzz/)
+  await clock.advance(10 * 60_000) // 00:01 — 날이 바뀌어 다시 불러온다
+  expect(await bandText($)).toMatch(/Zzz/)
+})

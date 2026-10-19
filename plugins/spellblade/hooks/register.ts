@@ -294,6 +294,7 @@ async function loadNow($: EngineInterface): Promise<void> {
   const saved = await $.store.get('log')
   const notified = await $.store.get(`q:${newToday}`)
 
+  const fresh = newSid !== sid || !loaded // 새 세션이거나 처음 불러온다(날이 바뀌어 다시 불러오는 것은 아님)
   if (newSid !== sid) {
     // 새 세션(/clear 등): 앞 세션 몫은 session.end 에서 이미 저장됐다. 콤보 · 연속 · 이 세션 기록도 새로
     mine.clear()
@@ -326,7 +327,8 @@ async function loadNow($: EngineInterface): Promise<void> {
   chosenTitle = isProfile(profile) && typeof profile.title === 'string' ? profile.title : null
   lastSyncAt = now
   clockNow = now
-  activity = { ...activity, lastActiveAt: now }
+  // 새 세션 · 처음에만 깨어 있게 — 자정에 다시 불러올 때 모닥불 앞에서 쉬거나 자던 마검사를 깨우지 않는다
+  if (fresh) activity = { ...activity, lastActiveAt: now }
   $.ui.invalidate('ui.render')
 
   // 이 창이 켜지기 전에 오른 레벨은 다시 알리지 않는다
