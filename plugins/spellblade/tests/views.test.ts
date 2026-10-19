@@ -3,7 +3,10 @@ import { newBattle } from '../hooks/lib/battle.ts'
 import { progressOf } from '../hooks/lib/progress.ts'
 import { sceneGrid } from '../hooks/lib/scene.ts'
 import { ZERO } from '../hooks/lib/ledger.ts'
-import { bandLineText, bandModeOf, bandPanel, baseView, coinArt, comma, levelLabel, motionOf, sceneArt, spinnerSuffix, xpBar, type CardView } from '../hooks/lib/views.ts'
+import { bandLineText, bandModeOf, bandPanel, baseView, coinArt, comma, levelLabel, motionOf, sceneArt, spinnerSuffix, stageRoad, xpBar, type CardView } from '../hooks/lib/views.ts'
+import { parsePack } from '../hooks/lib/pack.ts'
+import { scene4Grid } from '../hooks/lib/scene4.ts'
+import { fakePack, HERO_SKIN } from './fake-pack.ts'
 
 test('천 단위 쉼표', async () => {
   expect(comma(1240)).toBe('1,240')
@@ -67,7 +70,33 @@ const fakeEls = {
   Raster: (p: Record<string, unknown>) => ({ type: 'Raster', ...p }),
 }
 
-test('sceneArt: 데스크톱은 장면 Svg(밴드 2px · 카드 3px)와 이름표, 터미널 카드는 Raster', async () => {
+test('80 × 32 장면은 밴드 320 × 128 · 카드 480 × 192, 터미널은 160 × 32 Raster', async () => {
+  const pack = parsePack(JSON.stringify(fakePack()))!
+  const g = scene4Grid(pack, { mode: 'battle', level: 4, pose: 'idle', battle: newBattle({ index: 1, boss: 0 }, 0), now: 0, dimMagic: false })
+  const band = sceneArt(fakeEls, 'desktop', g, '<렌>', 'band') as Record<string, unknown>
+  expect([band.type, band.width, band.height]).toEqual(['Svg', 320, 128])
+  expect(String(band.source)).toContain('&lt;렌&gt;')
+  const pane = sceneArt(fakeEls, 'desktop', g, '렌', 'pane') as Record<string, unknown>
+  expect([pane.width, pane.height]).toEqual([480, 192])
+  const term = sceneArt(fakeEls, 'terminal', g, '렌', 'pane') as Record<string, unknown>
+  expect([term.type, term.columns, term.rows]).toEqual(['Raster', 160, 32])
+})
+
+test('승급의 길은 7단계(그림 묶음이 있을 때 · 없을 때)', async () => {
+  const pack = parsePack(JSON.stringify(fakePack()))!
+  for (const p of [pack, null]) {
+    const road = stageRoad(fakeEls, 'desktop', 30, p) as Record<string, unknown>[]
+    expect(road.map(r => r.type)).toEqual(Array(7).fill('Svg'))
+    expect(road.map(r => String(r.alt).endsWith('(잠김)'))).toEqual([false, false, false, true, true, true, true])
+  }
+  expect(stageRoad(fakeEls, 'terminal', 30, pack)).toEqual([])
+  // 묶음이 있으면 묶음 주인공(피부색 HERO_SKIN), 없으면 3.0 그림
+  const skin = '#' + HERO_SKIN.toString(16)
+  expect(String((stageRoad(fakeEls, 'desktop', 30, pack)[0] as Record<string, unknown>).source)).toContain(skin)
+  expect(String((stageRoad(fakeEls, 'desktop', 30, null)[0] as Record<string, unknown>).source)).not.toContain(skin)
+})
+
+test('160 × 64(기본 그림)도 같은 화면 크기: 밴드 320 × 128 · 카드 480 × 192, 터미널 Raster', async () => {
   const g = sceneGrid({ mode: 'battle', tier: 0, pose: 'idle', frame: 0, battle: newBattle({ index: 0, boss: 0 }, 0), now: 0, dimMagic: false })
   const band = sceneArt(fakeEls, 'desktop', g, '<렌>', 'band') as Record<string, unknown>
   expect([band.type, band.width, band.height]).toEqual(['Svg', 320, 128])

@@ -1,4 +1,4 @@
-import { LIMIT_WARN, MS, REST_AFTER_MS, TIERS } from './balance.ts'
+import { LIMIT_WARN, MS, REST_AFTER_MS } from './balance.ts'
 import type { HeroPose } from './hero3.ts'
 
 export type FlashKind = 'castHit' | 'castFail' | 'slash' | 'victory' | 'loot' | 'hit' | 'levelup'
@@ -78,17 +78,22 @@ function basePose(a: Activity, now: number): Scene {
   return { pose: 'idle', line: '쉬는 중', mode: 'battle' }
 }
 
-// ---- /blade demo: 12단계 × [베기 · 캐스팅 실패 · 모닥불] 을 0.8초씩, 저장소는 건드리지 않는다 ----
+// ---- /blade demo: 맵 5개(Lv.1 · 25 · 45 · 65 · 85) × [베기 · 캐스팅 실패 · 모닥불] 다음 보스 사이클롭스(Lv.40) 베기 한 장.
+// 0.8초씩 16장, 저장소는 건드리지 않는다 ----
 
 const DEMO_STEP = 800
+const DEMO_LEVELS = [1, 25, 45, 65, 85] as const
+const DEMO_BOSS = 40
 const DEMO_SCENES: readonly Scene[] = [
   { pose: 'slash', line: '베기! (데모)', mode: 'battle' },
   { pose: 'castFail', line: '주문이 꼬였다… (데모)', mode: 'battle' },
   { pose: 'sit', line: '모닥불 앞에서 쉬는 중 (데모)', mode: 'rest' },
 ]
 
-export function demoFrame(elapsedMs: number): (Scene & { tier: number }) | null {
+export function demoFrame(elapsedMs: number): (Scene & { level: number; boss: number }) | null {
   const i = Math.floor(elapsedMs / DEMO_STEP)
-  if (elapsedMs < 0 || i >= TIERS * DEMO_SCENES.length) return null
-  return { tier: Math.floor(i / DEMO_SCENES.length), ...DEMO_SCENES[i % DEMO_SCENES.length] }
+  const maps = DEMO_LEVELS.length * DEMO_SCENES.length
+  if (elapsedMs < 0 || i > maps) return null
+  if (i === maps) return { level: DEMO_BOSS, boss: DEMO_BOSS, pose: 'slash', line: '보스와 맞섰다! (데모)', mode: 'battle' }
+  return { level: DEMO_LEVELS[Math.floor(i / DEMO_SCENES.length)], boss: 0, ...DEMO_SCENES[i % DEMO_SCENES.length] }
 }

@@ -13,6 +13,14 @@ export function blank(w: number, h: number): RgbGrid {
   return Array.from({ length: h }, () => Array<number | null>(w).fill(null))
 }
 
+// 칸마다 k × k 로 늘린다(80 × 32 장면을 터미널 반칸 Raster 160 × 32 로)
+export function scaleGrid(g: RgbGrid, k: number): RgbGrid {
+  return g.flatMap(r => {
+    const wide = r.flatMap(v => Array<number | null>(k).fill(v))
+    return Array.from({ length: k }, () => [...wide])
+  })
+}
+
 const channel = (c: number, shift: number) => (c >> shift) & 255
 
 export function mixRgb(a: number, b: number, k: number): number {

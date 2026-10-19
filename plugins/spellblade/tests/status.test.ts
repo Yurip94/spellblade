@@ -67,14 +67,15 @@ test('전리품은 승리를 덮고 반격에는 밀린다', async () => {
   expect(poseAt(withFlash(withFlash(A(), 'hit', 0), 'loot', 10, 'L'), 20).pose).toBe('hit')
 })
 
-test('데모는 20단계 × 3장면(0.8초씩, 48초면 끝)', async () => {
-  expect(demoFrame(0)).toMatchObject({ tier: 0, pose: 'slash', mode: 'battle' })
-  expect(demoFrame(800)).toMatchObject({ tier: 0, pose: 'castFail', mode: 'battle' })
-  expect(demoFrame(1600)).toMatchObject({ tier: 0, pose: 'sit', mode: 'rest' })
-  expect(demoFrame(800 * 3)).toMatchObject({ tier: 1, pose: 'slash' })
-  expect(demoFrame(47_999)).toMatchObject({ tier: 19, pose: 'sit' })
+test('데모는 맵 5개 × 3장면 + 보스 한 장(0.8초씩, 16장이면 끝)', async () => {
+  expect(demoFrame(0)).toMatchObject({ level: 1, boss: 0, pose: 'slash', mode: 'battle' })
+  expect(demoFrame(800)).toMatchObject({ level: 1, pose: 'castFail', mode: 'battle' })
+  expect(demoFrame(1600)).toMatchObject({ level: 1, pose: 'sit', mode: 'rest' })
+  expect(demoFrame(800 * 3)).toMatchObject({ level: 25, pose: 'slash' })
+  expect(demoFrame(800 * 14)).toMatchObject({ level: 85, pose: 'sit' })
+  expect(demoFrame(800 * 15)).toMatchObject({ level: 40, boss: 40, pose: 'slash', mode: 'battle' })
   expect(demoFrame(0)?.line).toMatch(/\(데모\)/)
-  expect(demoFrame(48_000)).toBe(null)
+  expect([demoFrame(0)?.level, demoFrame(15 * 800)?.boss, demoFrame(16 * 800)]).toEqual([1, 40, null])
   expect(demoFrame(-1)).toBe(null)
 })
 

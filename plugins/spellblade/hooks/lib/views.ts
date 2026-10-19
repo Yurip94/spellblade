@@ -1,14 +1,17 @@
 import { FX } from './art3.ts'
 import { MAX_LEVEL, STAGES, STAT_MAX } from './balance.ts'
 import { heroFrame, heroSilhouette, tierOf } from './hero3.ts'
+import { lookPalette } from './looks.ts'
+import type { Pack } from './pack.ts'
 import { ZERO, type LogEntry, type Sum } from './ledger.ts'
 import type { Gauge } from './limits.ts'
-import { equipmentAt, xpForLevel, type Progress } from './progress.ts'
+import { equipmentAt, legacyTierOf, xpForLevel, type Progress } from './progress.ts'
 import { TITLES, type TitleId } from './progression.ts'
 import { pngSvg, rgbToPng } from './png.ts'
 import type { Quest } from './quests.ts'
-import { rgbToRaster, rgbToSvg, toRgb, type RgbGrid } from './rgb.ts'
+import { rgbToRaster, rgbToSvg, scaleGrid, toRgb, type RgbGrid } from './rgb.ts'
 import { nameTagSvg } from './scene.ts'
+import { nameTag4Svg, SCENE4_W } from './scene4.ts'
 import { comma, formulaLine, hitRate, shortNum } from './tokens.ts'
 
 export type { LogEntry }
@@ -116,8 +119,8 @@ export function bandLineText(v: CardView): string {
 type Make = (props: Record<string, unknown>) => unknown
 export type Els = { Box: Make; Text: Make; Button?: Make; Svg?: Make; Raster?: Make; Image?: Make }
 
-// 데스크톱 장면의 점 하나 크기(px): 밴드 2 · 카드 3 — 상태와 상관없이 고정(320 × 128 · 480 × 192)
-const SCENE_PIXEL = { band: 2, pane: 3 } as const
+// 데스크톱 장면의 폭(px): 밴드 320 · 카드 480 — 점 크기 = 폭 ÷ 격자 폭(4차 80 → 4 · 6, 3.0 160 → 2 · 3)
+const SCENE_WIDTH = { band: 320, pane: 480 } as const
 
 // 같은 장면 격자(sceneGrid 가 캐시한 것)는 SVG · Raster 도 한 번만 만든다 — 모닥불처럼 두 장면을 번갈아도 다시 계산하지 않게
 const svgMemo = new WeakMap<RgbGrid, Map<string, string>>()
@@ -128,7 +131,8 @@ function sceneSvg(grid: RgbGrid, px: number, name: string): string {
   if (!byName) svgMemo.set(grid, (byName = new Map()))
   const key = `${px}|${name}`
   let svg = byName.get(key)
-  if (svg === undefined) byName.set(key, (svg = rgbToSvg(grid, px, nameTagSvg(name, px))))
+  const tag = (grid[0]?.length ?? 0) === SCENE4_W ? nameTag4Svg(name, px) : nameTagSvg(name, px)
+  if (svg === undefined) byName.set(key, (svg = rgbToSvg(grid, px, tag)))
   return svg
 }
 
@@ -138,11 +142,12 @@ export function sceneArt(el: Els, surface: string, grid: RgbGrid, name: string, 
   if (surface === 'terminal') {
     if (!el.Raster) return null
     let cells = rasterMemo.get(grid)
-    if (!cells) rasterMemo.set(grid, (cells = rgbToRaster(grid, 'scene')))
+    // 4차 80 × 32 는 2배로 늘려 3.0 과 같은 160 × 32 칸
+    if (!cells) rasterMemo.set(grid, (cells = rgbToRaster((grid[0]?.length ?? 0) === SCENE4_W ? scaleGrid(grid, 2) : grid, 'scene')))
     return el.Raster(cells)
   }
   if (!el.Svg) return null
-  const px = SCENE_PIXEL[size]
+  const px = SCENE_WIDTH[size] / Math.max(1, grid[0]?.length ?? 0)
   const width = (grid[0]?.length ?? 0) * px
   const height = grid.length * px
   return el.Svg({ source: sceneSvg(grid, px, name), alt: `${name} — 마검사 장면`, width, height })
@@ -335,12 +340,18 @@ export function card(el: Els, art: unknown, v: CardView, tab: Tab = 1, onTab: (t
   })
 }
 
-// 데스크톱 승급의 길: 단계 첫 레벨의 장비 모습을 1px 로, 아직 못 간 단계는 실루엣
-export function stageRoad(el: Els, surface: string, level: number): unknown[] {
+// 데스크톱 승급의 길(7단계): 단계 첫 레벨의 장비 모습, 아직 못 간 단계는 실루엣.
+// 그림 묶음이 있으면 묶음 주인공 서기 첫 장을 그 단계 장비 색으로 2px, 없으면 3.0 그림을 1px
+export function stageRoad(el: Els, surface: string, level: number, pack: Pack | null = null): unknown[] {
   if (surface === 'terminal' || !el.Svg) return []
   return STAGES.map(s => {
-    const f = heroFrame(tierOf(s.minLevel), 'idle')
     const open = level >= s.minLevel
+    if (pack) {
+      const f = { grid: pack.hero.anims.idle[0], palette: lookPalette(pack.hero.palette, tierOf(s.minLevel)) }
+      const g = toRgb(open ? f : heroSilhouette(f))
+      return el.Svg!({ source: rgbToSvg(g, 2), alt: open ? s.name : `${s.name} (잠김)`, width: g[0].length * 2, height: g.length * 2 })
+    }
+    const f = heroFrame(legacyTierOf(s.minLevel), 'idle')
     const g = toRgb(open ? f : heroSilhouette(f))
     return el.Svg!({ source: rgbToSvg(g, 1), alt: open ? s.name : `${s.name} (잠김)`, width: g[0].length, height: g.length })
   })

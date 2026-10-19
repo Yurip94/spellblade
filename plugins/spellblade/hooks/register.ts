@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { ABORT_GRACE_MS, CAST_FAIL_BELOW, DEFAULT_NAME, FAST_TURN_MS, LIMIT_WARN, LOG_MAX, MS, NIGHT_HOURS, TIER_LEVELS } from './lib/balance.ts'
+import { ABORT_GRACE_MS, CAST_FAIL_BELOW, DEFAULT_NAME, FAST_TURN_MS, LIMIT_WARN, LOG_MAX, MS, NIGHT_HOURS } from './lib/balance.ts'
 import { bonusesFor, objectJosa, subjectJosa, topicJosa } from './lib/bonus.ts'
 import { skillOf } from './lib/skills.ts'
 import { addSum, allowedBonus, apiOf, dayKey, entryKey, isEntry, isLogEntry, isProfile, sumByDay, sumEntries, sumXp, ZERO, type Entry, type LogEntry, type Sum } from './lib/ledger.ts'
@@ -214,8 +214,8 @@ function snapshot(): CardView {
   const t = todaySum()
   const demo = demoNow()
   if (demo) {
-    // 데모 단계의 첫 레벨(단계 0 은 Lv.1)과 그 단계 몬스터
-    return { ...baseView(progressOf(xpForLevel(Math.max(1, demo.tier * TIER_LEVELS)))), name, line: demo.line, log, isDemo: true, monster: monsterView(newBattle(demoSpawn(demo.tier), 0)) }
+    // 데모 장면의 레벨과 그 레벨 몬스터(보스 장면이면 보스)
+    return { ...baseView(progressOf(xpForLevel(demo.level))), name, line: demo.line, log, isDemo: true, monster: monsterView(newBattle(demoSpawn(demo), 0)) }
   }
   const progress = progressOf(totalXp())
   const life = lifetime()
@@ -248,9 +248,9 @@ function snapshot(): CardView {
   }
 }
 
-// 데모 단계(장비 단계)의 첫 레벨에 나오는 몬스터
-function demoSpawn(tier: number): { index: number; boss: number } {
-  return { index: monsterIndexOf(Math.max(1, tier * TIER_LEVELS)), boss: 0 }
+// 데모 장면 레벨의 몬스터, 보스 장면이면 그 보스
+function demoSpawn(d: { level: number; boss: number }): { index: number; boss: number } {
+  return { index: monsterIndexOf(d.level), boss: d.boss }
 }
 
 function monsterView(b: Battle): CardView['monster'] {
@@ -268,10 +268,10 @@ function sceneState(): { input: SceneInput; key: string } {
   const frame: 0 | 1 = beat && Math.floor(clockNow / beat) % 2 === 1 ? 1 : 0
   const input: SceneInput = {
     mode: scene.mode,
-    tier: demo ? demo.tier : tierOf(v.progress.level),
+    tier: tierOf(demo ? demo.level : v.progress.level),
     pose: scene.pose,
     frame,
-    battle: demo ? newBattle(demoSpawn(demo.tier), 0) : battle,
+    battle: demo ? newBattle(demoSpawn(demo), 0) : battle,
     now: clockNow,
     dimMagic: magicDim(scene.pose),
   }
