@@ -102,6 +102,16 @@ export const CAST_FAIL_BELOW = 50
 // 도구 오류가 Esc 중단인지 턴 끝을 보고 가리는 유예(중단이면 반격이 아니다)
 export const ABORT_GRACE_MS = 1000
 
+// 4차 몬스터(4차 설계 7장): 3레벨마다 새 몬스터, 맵은 20레벨마다, 10레벨마다 보스(체력 4배),
+// 체력 = round(MONSTER_HP_BASE × MONSTER_HP_GROWTH^단계), 만렙 뒤에는 일반 FINAL_BOSS_EVERY 마리마다 최종 보스
+export const MONSTER_BAND = 3
+export const MAP_LEVELS = 20
+export const BOSS_EVERY = 10
+export const BOSS_HP_MULT = 4
+export const MONSTER_HP_BASE = 300
+export const MONSTER_HP_GROWTH = 1.1
+export const FINAL_BOSS_EVERY = 10
+
 // 3차 전투: 몬스터 체력(장비 단계마다) · 도구 한 번의 데미지(단계마다 25% 씩 더) · 영창 데미지 = W ÷ 10
 export const MONSTER_HP = [300, 400, 540, 720, 960, 1280, 1700, 2250, 3000, 4000, 5300, 7000] as const
 export const SKILL_TIER_BONUS = 0.25 // 장비 단계마다 도구 데미지 +25%
