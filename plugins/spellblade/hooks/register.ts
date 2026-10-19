@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { ABORT_GRACE_MS, CAST_FAIL_BELOW, DEFAULT_NAME, FAST_TURN_MS, LIMIT_WARN, LOG_MAX, MS, NIGHT_HOURS } from './lib/balance.ts'
+import { ABORT_GRACE_MS, CAST_FAIL_BELOW, CURVE_VERSION, DEFAULT_NAME, FAST_TURN_MS, FINAL_BOSS_EVERY, LIMIT_WARN, LOG_MAX, MAX_LEVEL, MS, NIGHT_HOURS } from './lib/balance.ts'
 import { bonusesFor, objectJosa, subjectJosa, topicJosa } from './lib/bonus.ts'
 import { skillOf } from './lib/skills.ts'
 import { addSum, allowedBonus, apiOf, dayKey, entryKey, isEntry, isLogEntry, isProfile, sumByDay, sumEntries, sumXp, ZERO, type Entry, type LogEntry, type Sum } from './lib/ledger.ts'
@@ -8,12 +8,14 @@ import { earnedTitles, longestStreak, statsOf, streakOf, TITLES, titleName, type
 import { apiCost } from './lib/price.ts'
 import { questReward, questStatus } from './lib/quests.ts'
 import { cacheReuse, shortNum } from './lib/tokens.ts'
-import { cleanUsage, equipmentAt, levelOf, progressOf, stageOf, tierOf, weightOf, xpForLevel } from './lib/progress.ts'
+import { cleanUsage, equipmentAt, legacyTierOf, levelOf, progressOf, stageOf, tierOf, weightOf, xpForLevel } from './lib/progress.ts'
 import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
-import { toRgb } from './lib/rgb.ts'
-import { castDamage, newBattle, retaliate, settle, skillDamage, strike, type Battle } from './lib/battle.ts'
-import { monsterDefOf, monsterIndexOf } from './lib/roster.ts'
+import { toRgb, type RgbGrid } from './lib/rgb.ts'
+import { castDamage, justDefeated, newBattle, retaliate, settle, skillDamage, strike, type Battle } from './lib/battle.ts'
+import { bossAt, monsterDefOf, monsterIndexOf, ROSTER, spawnFor, type Spawn } from './lib/roster.ts'
 import { sceneGrid, sceneKey, type SceneInput } from './lib/scene.ts'
+import { scene4Grid, scene4Key, type Scene4Input } from './lib/scene4.ts'
+import { PACK_FILE, parsePack, type Pack } from './lib/pack.ts'
 import { demoFrame, poseAt, thenFlash, withFlash, type Activity, type Mood } from './lib/status.ts'
 import { bandLineText, bandModeOf, bandPanel, baseView, card, coinArt, probePane, sceneArt, spinnerSuffix, stageRoad, type CardView, type Els, type Tab } from './lib/views.ts'
 
@@ -54,6 +56,10 @@ let banner: { text: string; until: number } | null = null
 let tab: Tab = 1 // 카드 창 탭
 let surface = 'terminal' // session.start 가 알려 준 표면(데스크톱에선 null 일 수 있다)
 let battle: Battle | null = null // 지금 싸우는 몬스터(새 세션이면 지금 장비 단계로 새로 만든다)
+let pack: Pack | null = null // Elthen 그림 묶음(켤 때 한 번 읽는다 — 없거나 깨졌으면 3.0 그림)
+let packWarned = false // 묶음이 없다는 토스트는 이 프로세스에서 한 번만
+let bossCleared = 0 // 잡은 가장 높은 보스 레벨(profile.boss)
+let killsAtMax = 0 // 만렙에서 최종 보스를 잡은 뒤 잡은 일반 몬스터 수 — FINAL_BOSS_EVERY 마리마다 최종 보스가 다시
 let pendingHits: number[] = [] // 메인 도구 오류 시각 — Esc 중단인지 가린 뒤(1초 · 다음 호출 · 턴 끝) 반격으로
 let loaded = false // 처음 불러오기가 끝났는지 — 그 전에는 날짜 · 합계가 비어 그리지 못한다
 let mainTurnSeq = 0 // 메인 턴이 끝날 때마다 1씩 — 끝난 턴의 도구가 늦게 낸 오류를 가린다
@@ -253,30 +259,41 @@ function demoSpawn(d: { level: number; boss: number }): { index: number; boss: n
   return { index: monsterIndexOf(d.level), boss: d.boss }
 }
 
+// 보스는 이모지 자리에 왕관(「👑 고블린 왕」)
 function monsterView(b: Battle): CardView['monster'] {
   const m = monsterDefOf(b)
-  return { name: m.name, emoji: m.emoji, hp: b.hp, maxHp: b.maxHp }
+  return { name: m.name, emoji: b.boss > 0 ? '👑' : m.emoji, hp: b.hp, maxHp: b.maxHp }
 }
 
-// 지금 그릴 장면. 바뀔 때만 다시 그리려고 열쇠도 같이(장면 열쇠 + 밴드 글)
-function sceneState(): { input: SceneInput; key: string } {
+// 다음에 나올 몬스터: 넘은 보스 문턱이 있으면 그 보스, 만렙 · 최종 보스를 잡았으면 일반 FINAL_BOSS_EVERY 마리마다 최종 보스
+function nextSpawn(level: number): Spawn {
+  if (level >= MAX_LEVEL && bossCleared >= MAX_LEVEL) {
+    return killsAtMax >= FINAL_BOSS_EVERY ? { index: ROSTER.length - 1, boss: MAX_LEVEL } : { index: monsterIndexOf(level), boss: 0 }
+  }
+  return spawnFor(level, bossCleared)
+}
+
+// 지금 그릴 장면. 바뀔 때만 다시 그리려고 열쇠도 같이(장면 열쇠 + 밴드 글).
+// 그림 묶음이 있으면 4차 80 × 32, 없으면 3.0 160 × 64(주인공 · 몬스터는 3.0 의 12단계로 나눈다)
+function sceneState(): { grid: () => RgbGrid; key: string } {
   const v = snapshot()
   const demo = demoNow()
   const scene = demo ?? poseAt(activity, clockNow, mood())
+  const level = demo ? demo.level : v.progress.level
+  const fight = demo ? newBattle(demoSpawn(demo), 0) : battle
+  const m = v.monster
+  const tail = `${scene.line}|${v.progress.xp}|${v.banner ?? ''}|${v.name}|${m ? `${m.hp}/${m.maxHp}` : ''}`
+  const head = demo ? 'demo' : ''
+  if (pack) {
+    const p = pack
+    const input: Scene4Input = { mode: scene.mode, level, pose: scene.pose, battle: fight, now: clockNow, dimMagic: magicDim(scene.pose) }
+    return { grid: () => scene4Grid(p, input), key: `${head}|4|${scene4Key(input)}|${tail}` }
+  }
   // 빛기둥(0.4초) · 모닥불(0.8초, 잠들면 멈춤)만 두 프레임을 번갈아 — 그 밖에는 0 이라 그것 때문에 다시 그리지 않는다
   const beat = scene.pose === 'levelup' ? MS.castFrame : scene.mode === 'rest' && scene.pose !== 'sleep' ? MS.fireFrame : 0
   const frame: 0 | 1 = beat && Math.floor(clockNow / beat) % 2 === 1 ? 1 : 0
-  const input: SceneInput = {
-    mode: scene.mode,
-    tier: tierOf(demo ? demo.level : v.progress.level),
-    pose: scene.pose,
-    frame,
-    battle: demo ? newBattle(demoSpawn(demo), 0) : battle,
-    now: clockNow,
-    dimMagic: magicDim(scene.pose),
-  }
-  const m = v.monster
-  return { input, key: `${demo ? 'demo' : ''}|${sceneKey(input)}|${scene.line}|${v.progress.xp}|${v.banner ?? ''}|${v.name}|${m ? `${m.hp}/${m.maxHp}` : ''}` }
+  const input: SceneInput = { mode: scene.mode, tier: legacyTierOf(level), pose: scene.pose, frame, battle: fight, now: clockNow, dimMagic: magicDim(scene.pose) }
+  return { grid: () => sceneGrid(input), key: `${head}|${sceneKey(input)}|${tail}` }
 }
 
 async function readAll($: EngineInterface): Promise<[string, unknown][]> {
@@ -339,22 +356,31 @@ async function loadNow($: EngineInterface): Promise<void> {
 
   // 이 창이 켜지기 전에 오른 레벨은 다시 알리지 않는다
   const levelNow = levelOf(totalXp())
-  if (!battle) battle = newBattle({ index: monsterIndexOf(levelNow), boss: 0 }, totalXp())
+  bossCleared = isProfile(profile) && typeof profile.boss === 'number' ? profile.boss : 0
+  if (!battle) battle = newBattle(nextSpawn(levelNow), totalXp())
   loaded = true
-  levelSeen = Math.max(isProfile(profile) ? profile.lastLevel : 0, levelNow)
+  // 레벨 100 체계로 옮기는 중이면 옛 lastLevel(옛 곡선의 레벨)은 보지 않는다
+  const needCurve = !isProfile(profile) || profile.curve !== CURVE_VERSION
+  levelSeen = needCurve ? levelNow : Math.max(isProfile(profile) ? profile.lastLevel : 0, levelNow)
 
   // 처음 켤 때는 이미 이룬 것을 조용히 기록만 한다(지난 레벨 · 칭호 · 의뢰를 한꺼번에 알리지 않으려고)
   const earned = earnedTitles(lifetime())
   const needTitles = !isProfile(profile) || !Array.isArray(profile.titles)
   const needFrom = !isProfile(profile) || typeof profile.questsFrom !== 'string'
-  if (needTitles || needFrom) {
-    const base = isProfile(profile) ? profile : { name, createdAt: now, lastLevel: levelNow }
+  if (needTitles || needFrom || needCurve) {
+    // 다른 창이 그새 옮겼으면 그것을 바탕으로(이주 일지를 두 번 쓰지 않게)
+    const latest = needCurve ? await $.store.get('profile') : profile
+    const base = isProfile(latest) ? latest : { name, createdAt: now, lastLevel: levelNow }
     const titles = needTitles ? earned : (base as { titles?: string[] }).titles ?? []
     if (needTitles) {
       knownTitles = new Set(earned)
       titleOrder = [...earned]
     }
-    await $.store.set('profile', { ...base, titles, questsFrom, lastLevel: Math.max(base.lastLevel, levelNow) })
+    const moving = needCurve && base.curve !== CURVE_VERSION
+    await $.store.set('profile', { ...base, titles, questsFrom, curve: CURVE_VERSION, lastLevel: moving ? levelNow : Math.max(base.lastLevel, levelNow) })
+    if (moving && isProfile(latest) && latest.lastLevel !== levelNow) {
+      await addLog($, { at: now, level: levelNow, stage: stageOf(levelNow).id, kind: 'note', text: `레벨 100 체계로 바뀜 — Lv.${latest.lastLevel} → Lv.${levelNow}` })
+    }
   }
   if (!Array.isArray(notified)) {
     const t = todaySum()
@@ -437,7 +463,9 @@ async function tick($: EngineInterface): Promise<void> {
   applyHits(now, at => now - at >= ABORT_GRACE_MS)
   if (battle) {
     const xp = totalXp()
-    battle = settle(battle, now, { index: monsterIndexOf(levelOf(xp)), boss: 0 }, xp)
+    const before = battle
+    battle = settle(battle, now, nextSpawn(levelOf(xp)), xp)
+    if (justDefeated(before, battle)) defeated($, before, levelOf(xp))
   }
   const key = sceneState().key
   if (key !== lastDrawnKey) {
@@ -461,6 +489,30 @@ async function tick($: EngineInterface): Promise<void> {
   } finally {
     syncing = false
   }
+}
+
+// 몬스터가 쓰러진 순간: 보스면 먼저 차지하고(다음 몬스터가 같은 보스가 아니게) 저장 · 알림, 만렙 일반이면 수를 센다
+function defeated($: EngineInterface, b: Battle, level: number): void {
+  if (b.boss > 0) {
+    bossCleared = Math.max(bossCleared, b.boss)
+    if (b.boss >= MAX_LEVEL) killsAtMax = 0
+    void announcing(() => recordBoss($, b.boss)).catch(() => {})
+  } else if (level >= MAX_LEVEL && bossCleared >= MAX_LEVEL) {
+    killsAtMax++
+  }
+}
+
+// profile.boss 를 더 큰 값으로만 쓴다. 이 창이 처음 적었을 때만 일지 · 토스트(다른 창이 먼저 적었으면 조용히)
+async function recordBoss($: EngineInterface, boss: number): Promise<void> {
+  const stored = await $.store.get('profile')
+  const saved = isProfile(stored) && typeof stored.boss === 'number' ? stored.boss : 0
+  if (saved >= boss) return
+  const level = levelOf(totalXp())
+  const base = isProfile(stored) ? stored : { name, createdAt: clockNow, lastLevel: level }
+  await $.store.set('profile', { ...base, boss })
+  const who = bossAt(boss).name
+  await addLog($, { at: clockNow, level, stage: stageOf(level).id, kind: 'boss', text: `보스 처치 · ${who}` })
+  $.ui.toast(`🏆 보스 처치! ${who}`)
 }
 
 // 단계 사용량을 그날 칸에: 토큰 · 위력, 그리고 골드(그 모델의 API 요금으로 친 값 — Vorssaint 와 같은 셈)
@@ -666,7 +718,9 @@ async function reset($: EngineInterface): Promise<string> {
   chosenTitle = null
   banner = null
   pendingHits = []
-  battle = null // 몬스터도 처음(슬라임)부터 — load 가 새로 만든다
+  battle = null // 몬스터도 처음(허수아비)부터 — load 가 새로 만든다
+  bossCleared = 0
+  killsAtMax = 0
   await load($)
   return `처음부터 다시 시작해요. 수련생 ${name}, 잘 부탁해요!`
 }
@@ -688,6 +742,22 @@ async function probeText($: EngineInterface): Promise<string> {
   return `session=${id} surface=${surface} surfaces=${surfaces.join(',')} tz=${tz} toBase64=${native}`
 }
 
+// 켤 때 한 번: $HOME/Documents/spellblade-packs/spellblade-pack.json. 못 읽거나 깨졌으면 3.0 그림으로(토스트는 한 번만)
+async function loadPack($: EngineInterface): Promise<void> {
+  try {
+    const home = await $.env.get('HOME')
+    pack = home ? parsePack(String(await $.fs.read(`${home}/${PACK_FILE}`))) : null
+  } catch {
+    pack = null
+  }
+  lastDrawnKey = ''
+  $.ui.invalidate('ui.render') // 묶음 그림(또는 기본 그림)으로 바로 다시
+  if (!pack && !packWarned) {
+    packWarned = true
+    $.ui.toast('그림 묶음이 없어 기본 그림으로 그려요')
+  }
+}
+
 function startTimer($: EngineInterface): void {
   $.clock.every(MS.tick, () => {
     void tick($).catch(() => {})
@@ -704,6 +774,7 @@ export const register: Register = (on, options) => {
     activity = { working: false, lastActiveAt: 0, flash: null, queued: null }
     lastDrawnKey = ''
     await load($)
+    await loadPack($)
     try {
       const u = await $.session.usage()
       limits = limitsOf(u.rateLimits)
@@ -872,7 +943,7 @@ export const register: Register = (on, options) => {
     const v = snapshot()
     // 터미널은 언제나 한 줄. 데스크톱 그림판(장면 320 × 128 + 글)은 84칸 · 10줄 이상에서만
     const roomy = e.surface !== 'terminal' && band === 'panel' && e.props.bodyColumns >= 84 && e.props.maxRows >= 10
-    const art = roomy ? sceneArt(el, e.surface, sceneGrid(sceneState().input), v.name, 'band') : null
+    const art = roomy ? sceneArt(el, e.surface, sceneState().grid(), v.name, 'band') : null
     const mine = art ? bandPanel(el, art, v, coinArt(el, e.surface)) : el.Text({ wrap: 'truncate-end', children: [bandLineText(v)] })
     return el.Box({ flexDirection: 'column', children: [mine, below] }) as any
   })
@@ -889,8 +960,8 @@ export const register: Register = (on, options) => {
       }
       // 데스크톱은 장면 480 × 192, 터미널은 장면(160칸 × 32줄)이 들어갈 만큼 큰 창에서만
       const big = e.surface !== 'terminal' || (e.props.bodyColumns >= 160 && e.props.scroll.bodyRows >= 44)
-      const art = big ? sceneArt(el, e.surface, sceneGrid(sceneState().input), v.name, 'pane') : null
-      return card(el, art, v, tab, onTab, stageRoad(el, e.surface, v.progress.level), coinArt(el, e.surface)) as any
+      const art = big ? sceneArt(el, e.surface, sceneState().grid(), v.name, 'pane') : null
+      return card(el, art, v, tab, onTab, stageRoad(el, e.surface, v.progress.level, pack), coinArt(el, e.surface)) as any
     }
     if (e.requestId !== PROBE) return next(e)
     // 터미널의 resolve 도 Svg 를 내주지만 그려지지 않는다 — 표면으로 고른다(probePane)

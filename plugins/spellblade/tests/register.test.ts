@@ -3,6 +3,10 @@ import type { Engine, MockClock } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { dayKey, isEntry, sumEntries } from '../hooks/lib/ledger.ts'
 import { levelOf, xpForLevel } from '../hooks/lib/progress.ts'
+import { PACK_FILE } from '../hooks/lib/pack.ts'
+import { monsterHp, monsterIndexOf } from '../hooks/lib/roster.ts'
+import { skillDamage } from '../hooks/lib/battle.ts'
+import { fakePack } from './fake-pack.ts'
 
 // 스트림을 끝까지 읽고 결과를 돌려준다
 async function run<R>(stream: AsyncGenerator<unknown, R> & { result: Promise<R> }): Promise<R> {
@@ -15,7 +19,8 @@ type Seen = { commands: string[]; toasts: { text: string; timeoutMs?: number }[]
 // 키트에는 엔진이 없어서 플러그인이 부르는 $ 호출에 테스트가 맨 아래에서 답한다.
 // 테스트의 훅은 모두 첫 $ 호출 전에 걸어야 하므로: beneath → (테스트 훅) → start
 // failMeta: profile · log · q: 같은 알림 칸 저장만 실패시킨다(테스트 중간에 켤 수 있다)
-type BeneathOpts = { now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string; failSet?: boolean; failMeta?: boolean; beforeKeys?: () => Promise<void>; limits?: { kind: string; percentUsed: number; resetsAt?: string }[] }
+// pack: 그림 묶음 파일($HOME/Documents/spellblade-packs/spellblade-pack.json) — 없으면 가짜 묶음, 'missing' 은 읽기 실패, 'broken' 은 잘린 JSON
+type BeneathOpts = { pack?: string; now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string; failSet?: boolean; failMeta?: boolean; beforeKeys?: () => Promise<void>; limits?: { kind: string; percentUsed: number; resetsAt?: string }[] }
 
 function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen } {
   const clock = mock.clock(on, { now: opts.now ?? Date.UTC(2026, 9, 16, 3, 0) })
@@ -35,6 +40,11 @@ function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen
     return { value: [...seen.store.keys()] }
   })
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+  on('env.get', async (_$, e) => ({ value: e.name === 'HOME' ? '/home/t' : undefined }))
+  on('fs.read', async (_$, e) => {
+    if (e.path !== `/home/t/${PACK_FILE}` || opts.pack === 'missing') throw new Error('ENOENT')
+    return { value: opts.pack === 'broken' ? '{"version":1,"hero":{"palette":' : opts.pack ?? JSON.stringify(fakePack()) }
+  })
   on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
   // $ 메서드(op 이벤트)의 답은 { value } 로 준다
   on('session.id', async () => ({ value: opts.sid ?? 'me' }))
@@ -939,7 +949,8 @@ test('2.0 을 처음 켜도 지난날 경험치는 그대로', async ($, on) => 
   await start($)
   // 1,000 XP → Lv.2 (1,000), Lv.3(2,378)까지 1,378
   expect(await cardText($)).toMatch(/다음 레벨까지 1,378 XP/)
-  expect(seen.store.get('profile')).toMatchObject({ questsFrom: TODAY, lastLevel: 5 })
+  // 옛 곡선의 Lv.5 는 레벨 100 체계로 옮기며 Lv.2 가 된다
+  expect(seen.store.get('profile')).toMatchObject({ questsFrom: TODAY, lastLevel: 2, curve: 4 })
 })
 
 test('의뢰 시작일 뒤의 지난날 보상은 센다', async ($, on) => {
@@ -1333,7 +1344,7 @@ test('Lv.4 가 되면 다음 몬스터는 슬라임(3레벨마다)', async ($, o
 })
 
 test('높은 레벨로 켜면 그 단계 몬스터로 시작한다', async ($, on) => {
-  beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(xpForLevel(35) * 1000) } })
+  beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(xpForLevel(35) * 1000), profile: { name: '렌', createdAt: 1, lastLevel: 35, titles: ['first'], curve: 4, boss: 30 } } })
   await start($)
   expect(await cardText($)).toMatch(/🪰 거대 파리 HP 856\/856/)
 })
@@ -1365,7 +1376,7 @@ test('아무 일 없으면 다시 그리지 않는다', async ($, on) => {
 })
 
 test('reset 하면 몬스터도 처음부터', async ($, on) => {
-  beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(xpForLevel(35) * 1000) } })
+  beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(xpForLevel(35) * 1000), profile: { name: '렌', createdAt: 1, lastLevel: 35, titles: ['first'], curve: 4, boss: 30 } } })
   answerAsk(on, '처음부터')
   await start($)
   expect(await cardText($)).toMatch(/🪰 거대 파리/)
@@ -1522,4 +1533,110 @@ test('기록 탭: 오늘 줄 아래에 오늘 경험치 · 금화 · 골드(데�
   expect(await desk.find({ text: / 10\.00 골드/ })).toBeTruthy()
   expect((await desk.findAll({ type: 'Svg' })).length).toBe(1)
   expect(JSON.stringify(await desk.drawn())).not.toMatch(/🪙|전체 DPS/)
+})
+
+// ---- 4차: 그림 묶음 · 레벨 이주 · 보스 · 장비 단계 데미지 ----
+
+async function bandSvg($: Engine): Promise<string> {
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
+  const svg = JSON.stringify(await m.find({ type: 'Svg' }))
+  await m.unmount()
+  return svg
+}
+const NO_PACK = '그림 묶음이 없어 기본 그림으로 그려요'
+const logTexts = (seen: Seen) => ((seen.store.get('log') ?? []) as { text?: string }[]).map(l => l.text ?? '')
+const fourth = (level: number, o: Record<string, unknown> = {}) => ({ profile: { name: '렌', createdAt: 1, lastLevel: level, titles: ['first'], questsFrom: TODAY, curve: 4, ...o }, [`d:${YESTERDAY}:x`]: entry(xpForLevel(level) * 1000) })
+const BIG_CAST = { output_tokens: 70_000, input_tokens: 100, cache_read_input_tokens: 50_000 }
+
+test('묶음이 없으면 토스트 한 번 · 기본 그림(160 × 64)', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, pack: 'missing' })
+  await start($, 'desktop')
+  await $.classic.SessionStart({ source: 'clear' })
+  await start($, 'desktop')
+  expect(seen.toasts.filter(t => t.text === NO_PACK).length).toBe(1)
+  expect(await bandSvg($)).toMatch(/viewBox=\\"0 0 160 64\\"/)
+})
+
+test('묶음이 깨졌어도 같은 길', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, pack: 'broken' })
+  await start($, 'desktop')
+  expect(seen.toasts.filter(t => t.text === NO_PACK).length).toBe(1)
+  expect(await bandSvg($)).toMatch(/viewBox=\\"0 0 160 64\\"/)
+})
+
+test('묶음이 있으면 80 × 32 장면', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON })
+  await start($, 'desktop')
+  const svg = await bandSvg($)
+  expect(svg).toMatch(/viewBox=\\"0 0 80 32\\"/)
+  expect(svg).toMatch(/"width":320/)
+  expect(seen.toasts.filter(t => t.text === NO_PACK)).toEqual([])
+})
+
+test('이주: Lv.14(옛 곡선) → Lv.7, 일지 한 줄, 다시 켜도 한 줄', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(10_787_000), profile: { name: '렌', createdAt: 1, lastLevel: 14, titles: ['first'], questsFrom: TODAY } } })
+  await start($)
+  expect(seen.store.get('profile')).toMatchObject({ curve: 4, lastLevel: 7 })
+  await start($)
+  expect(logTexts(seen).filter(t => t === '레벨 100 체계로 바뀜 — Lv.14 → Lv.7').length).toBe(1)
+  expect(seen.toasts.filter(t => t.text.startsWith('⬆'))).toEqual([])
+})
+
+test('처음 켜는 사람은 이주 일지 없이 curve 만', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON })
+  await start($)
+  expect(seen.store.get('profile')).toMatchObject({ curve: 4, lastLevel: 1 })
+  expect(logTexts(seen).filter(t => t.startsWith('레벨 100'))).toEqual([])
+})
+
+test('Lv.10 이 되면 다음 몬스터는 고블린 왕, 잡으면 profile.boss = 10, 다시 켜도 안 나옴', async ($, on) => {
+  const { clock, seen } = beneath(on, { now: NOON, store: fourth(10) })
+  answerUsage(on, BIG_CAST)
+  await start($)
+  expect(await cardText($)).toMatch(/👑 고블린 왕 HP 1,597\/1,597/)
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }))
+  await clock.advance(1_300)
+  expect(seen.store.get('profile')).toMatchObject({ boss: 10 })
+  expect(seen.toasts.map(t => t.text)).toContain('🏆 보스 처치! 고블린 왕')
+  expect(logTexts(seen).filter(t => t === '보스 처치 · 고블린 왕').length).toBe(1)
+  expect(await cardText($)).toMatch(/🦇 박쥐 HP/)
+  await start($)
+  expect(await cardText($)).not.toMatch(/고블린 왕/)
+})
+
+test('다른 창이 이미 잡은 보스는 일지를 겹쳐 쓰지 않는다', async ($, on) => {
+  const { clock, seen } = beneath(on, { now: NOON, store: fourth(10) })
+  answerUsage(on, BIG_CAST)
+  await start($)
+  seen.store.set('profile', { ...(seen.store.get('profile') as object), boss: 10 })
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }))
+  await clock.advance(1_300)
+  expect(seen.toasts.filter(t => t.text.startsWith('🏆'))).toEqual([])
+  expect(logTexts(seen).filter(t => t.startsWith('보스 처치'))).toEqual([])
+})
+
+test('만렙에서 최종 보스는 일반 10마리마다', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON, store: fourth(100, { boss: 100 }) })
+  answerUsage(on, BIG_CAST)
+  await start($)
+  expect(await cardText($)).toMatch(/💀 저주받은 검투사/)
+  for (let i = 0; i < 10; i++) {
+    expect(await cardText($)).not.toMatch(/샤드소울/)
+    await oneTurn($) // 한 턴에 마법 한 번 = 한 마리(시험 답은 턴 t 에만)
+    await clock.advance(1_300)
+  }
+  expect(await cardText($)).toMatch(/👑 샤드소울 학살자/)
+})
+
+test('도구 데미지는 장비 단계 기준', async ($, on) => {
+  beneath(on, { now: NOON, store: fourth(50, { boss: 50 }) })
+  toolMode = 'ok'
+  answerTools(on)
+  await start($)
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
+  const hp = monsterHp(monsterIndexOf(50), false)
+  const c = (n: number) => n.toLocaleString('en-US')
+  expect(await cardText($)).toContain(`HP ${c(hp - skillDamage('eye', 10))}/${c(hp)}`)
 })

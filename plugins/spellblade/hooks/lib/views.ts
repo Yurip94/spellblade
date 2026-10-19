@@ -304,7 +304,7 @@ function recordTab(el: Els, v: CardView, coin: unknown): unknown[] {
   const backpack = backpackLine(v)
   const journal = v.log.length
     ? v.log.slice(0, 8).map(l => {
-        if (l.text) return text(el, `  ${l.kind === 'title' ? '🏅' : '📜'} ${l.text}`)
+        if (l.text) return text(el, `  ${l.kind === 'title' ? '🏅' : l.kind === 'boss' ? '🏆' : '📜'} ${l.text}`)
         const st = STAGES.find(x => x.id === l.stage)
         return text(el, `  ⬆ Lv.${l.level} ${st?.emoji ?? ''} ${st?.name ?? ''}`)
       })
