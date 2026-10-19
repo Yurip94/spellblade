@@ -5,7 +5,7 @@ import { fakePack, withMonster, withoutHeroAnim } from './fake-pack.ts'
 test('맞는 묶음을 읽는다', async () => {
   const p = parsePack(JSON.stringify(fakePack()))
   expect(p?.monsters.slime.anims.idle.length).toBe(2)
-  expect(p?.hero.palette.c).toBe(0x3050c0)
+  expect(p?.hero.palette.c).toBe(0x2d6ac5)
   expect(HERO_ANIMS.length).toBe(8)
   expect(PACK_FILE).toBe('Documents/spellblade-packs/spellblade-pack.json')
 })

@@ -1,6 +1,6 @@
 // 시험용 작은 그림 묶음: 주인공 8동작 · 몬스터 slime 하나. 색은 알아보기 쉬운 값으로
 export const HERO_SKIN = 0xf0c8a0
-export const HERO_CLOTH = 0x3050c0
+export const HERO_CLOTH = 0x2d6ac5 // 실제 주인공 옷 색(looks.ts 가 바꾸는 색)
 export const SLIME = 0x40c060
 
 const hero4 = (dy = 0) => {
@@ -36,8 +36,8 @@ export function withoutHeroAnim(name: string): any {
 }
 
 // 몬스터 하나를 큰 그림으로(보스 시험용)
-export function withBigMonster(id: string, h: number, color = 0xaa2222): any {
+export function withBigMonster(id: string, h: number, color = 0xaa2222, w = 8): any {
   const p = fakePack()
-  p.monsters[id] = { palette: { b: color }, anims: { idle: [Array(h).fill('bbbbbbbb')] } }
+  p.monsters[id] = { palette: { b: color }, anims: { idle: [Array(h).fill('b'.repeat(w))] } }
   return p
 }
