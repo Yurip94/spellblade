@@ -1,4 +1,4 @@
-import { CAST_DAMAGE_DIV, MONSTER_HP, MS, POPUP_MAX, SKILL_DAMAGE } from './balance.ts'
+import { CAST_DAMAGE_DIV, MONSTER_HP, MS, POPUP_MAX, SKILL_DAMAGE, SKILL_TIER_BONUS } from './balance.ts'
 import type { SkillId } from './skills.ts'
 
 // 3차 전투 상태: 도구 한 번 = 한 대, 체력이 0 이면 펑 → +N XP → 같은 자리에 새 몬스터.
@@ -51,7 +51,7 @@ export function settle(b: Battle, now: number, tierNow: number, xpNow: number): 
 }
 
 export function skillDamage(skill: SkillId, tier: number): number {
-  return Math.round(SKILL_DAMAGE[skill] * (1 + 0.25 * tierAt(tier)))
+  return Math.round(SKILL_DAMAGE[skill] * (1 + SKILL_TIER_BONUS * tierAt(tier)))
 }
 
 export function castDamage(w: number): number {

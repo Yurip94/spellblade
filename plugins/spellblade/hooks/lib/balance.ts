@@ -90,6 +90,7 @@ export const ABORT_GRACE_MS = 1000
 
 // 3차 전투: 몬스터 체력(장비 단계마다) · 도구 한 번의 데미지(단계마다 25% 씩 더) · 영창 데미지 = W ÷ 10
 export const MONSTER_HP = [300, 400, 540, 720, 960, 1280, 1700, 2250, 3000, 4000, 5300, 7000] as const
+export const SKILL_TIER_BONUS = 0.25 // 장비 단계마다 도구 데미지 +25%
 export const SKILL_DAMAGE: Record<SkillId, number> = { eye: 18, track: 15, forge: 30, create: 36, storm: 40, ranged: 25, clone: 50, tactics: 12, summon: 28, slash: 20 }
 export const CAST_DAMAGE_DIV = 10
 export const POPUP_MAX = 3
