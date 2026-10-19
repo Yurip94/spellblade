@@ -69,7 +69,7 @@ test('글꼴과 배경', async () => {
     expect(b.grid.length).toBe(64)
     expect(b.grid.every(r => r.length === 160 && !r.includes('.'))).toBe(true)
   }
-  for (const id of ['slashArc', 'castGlow1', 'castGlow2', 'bolt', 'smoke', 'sweat', 'poof1', 'poof2', 'pillar1', 'pillar2', 'zzz', 'fire1', 'fire2'] as const) {
+  for (const id of ['slashArc', 'castGlow1', 'castGlow2', 'bolt', 'smoke', 'sweat', 'poof1', 'poof2', 'pillar1', 'pillar2', 'zzz', 'fire1', 'fire2', 'coin'] as const) {
     expect(FX[id].grid.length > 0).toBe(true)
   }
 })

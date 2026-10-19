@@ -2,9 +2,10 @@ import type { EngineInterface, Register } from 'claude-code'
 import { ABORT_GRACE_MS, CAST_FAIL_BELOW, DEFAULT_NAME, FAST_TURN_MS, LIMIT_WARN, LOG_MAX, MS, NIGHT_HOURS, TIER_LEVELS } from './lib/balance.ts'
 import { bonusesFor, objectJosa, subjectJosa, topicJosa } from './lib/bonus.ts'
 import { skillOf } from './lib/skills.ts'
-import { addSum, allowedBonus, dayKey, entryKey, isEntry, isLogEntry, isProfile, sumByDay, sumEntries, sumXp, ZERO, type Entry, type LogEntry, type Sum } from './lib/ledger.ts'
+import { addSum, allowedBonus, apiOf, dayKey, entryKey, isEntry, isLogEntry, isProfile, sumByDay, sumEntries, sumXp, ZERO, type Entry, type LogEntry, type Sum } from './lib/ledger.ts'
 import { limitsOf, liveGauge, resetText, type Gauge } from './lib/limits.ts'
 import { earnedTitles, longestStreak, statsOf, streakOf, TITLES, titleName, type Lifetime } from './lib/progression.ts'
+import { apiCost } from './lib/price.ts'
 import { questReward, questStatus } from './lib/quests.ts'
 import { cacheReuse, shortNum } from './lib/tokens.ts'
 import { cleanUsage, equipmentAt, levelOf, progressOf, stageOf, tierOf, weightOf, xpForLevel } from './lib/progress.ts'
@@ -15,7 +16,7 @@ import { castDamage, newBattle, retaliate, settle, skillDamage, strike, type Bat
 import { MONSTERS } from './lib/monsters.ts'
 import { sceneGrid, sceneKey, type SceneInput } from './lib/scene.ts'
 import { demoFrame, poseAt, thenFlash, withFlash, type Activity, type Mood } from './lib/status.ts'
-import { bandLineText, bandModeOf, bandPanel, baseView, card, sceneArt, spinnerSuffix, stageRoad, type CardView, type Els, type Tab } from './lib/views.ts'
+import { bandLineText, bandModeOf, bandPanel, baseView, card, coinArt, sceneArt, spinnerSuffix, stageRoad, type CardView, type Els, type Tab } from './lib/views.ts'
 
 // ---- 모듈 상태 (session.start 의 load 가 매번 새로 채운다) ----
 
@@ -57,7 +58,6 @@ let battle: Battle | null = null // 지금 싸우는 몬스터(새 세션이면 
 let pendingHits: number[] = [] // 메인 도구 오류 시각 — Esc 중단인지 가린 뒤(1초 · 다음 호출 · 턴 끝) 반격으로
 let loaded = false // 처음 불러오기가 끝났는지 — 그 전에는 날짜 · 합계가 비어 그리지 못한다
 let mainTurnSeq = 0 // 메인 턴이 끝날 때마다 1씩 — 끝난 턴의 도구가 늦게 낸 오류를 가린다
-let costSeen: number | null = null // 마지막으로 본 이 세션 비용(달러) — 늘어난 만큼만 그날 골드로 더한다
 let levelSeen = 0 // 이 창이 이미 본 레벨 — 레벨업 알림을 한 번만 내려고 먼저 차지한다
 let questsFrom = '' // 이 날부터 의뢰 보상을 센다(2.0 을 처음 켠 날 — 지난날 소급 없음)
 let sessionW = 0
@@ -459,10 +459,13 @@ async function tick($: EngineInterface): Promise<void> {
   }
 }
 
-async function addUsage($: EngineInterface, w: number, u: { input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number }): Promise<void> {
+// 단계 사용량을 그날 칸에: 토큰 · 위력, 그리고 골드(그 모델의 API 요금으로 친 값 — Vorssaint 와 같은 셈)
+async function addUsage($: EngineInterface, w: number, u: { input_tokens: number; output_tokens: number; cache_creation_input_tokens: number; cache_read_input_tokens: number }, model: string | undefined): Promise<void> {
   const now = await $.clock.now()
   const day = dayKey(now, tz)
   const e = mineOn(day)
+  // 앞 버전이 값 없이 쌓은 오늘 몫은 기본 모델 값으로 넣고 이어 센다(토큰을 더하기 전에)
+  e.api = apiOf(e) + apiCost(model, u)
   e.w += w
   e.in = (e.in ?? 0) + u.input_tokens
   e.out = (e.out ?? 0) + u.output_tokens
@@ -587,24 +590,6 @@ function victorySummary(): string {
   return parts.join(' · ')
 }
 
-// 세션 비용(/cost 와 같은 누계, 달러)이 늘어난 만큼 그날 칸에 더한다 — 오늘 쓴 🪙 골드.
-// 처음 본 값은 기준으로만(켜기 전 · 이어 받은 대화의 지난 비용은 오늘 몫이 아니다), 줄었으면 장부가 0 부터 다시 센 것
-function addCost(usd: number, now: number): void {
-  if (!Number.isFinite(usd) || usd < 0) return
-  if (costSeen === null) {
-    costSeen = usd
-    return
-  }
-  if (usd < costSeen) costSeen = 0
-  const delta = usd - costSeen
-  costSeen = usd
-  if (delta <= 0) return
-  const day = dayKey(now, tz)
-  const entry = mineOn(day)
-  entry.usd = (entry.usd ?? 0) + delta
-  dirty.add(day)
-}
-
 // 메인 대화 단계마다 마법 한 발: 그날 칸 · 이번 턴 · 이 세션에 쏜 수와 적중 수를 센다(기록 탭의 🎯 마법 적중률)
 function countShot(hit: boolean): void {
   const day = dayKey(clockNow, tz)
@@ -719,7 +704,6 @@ export const register: Register = (on, options) => {
       const u = await $.session.usage()
       limits = limitsOf(u.rateLimits)
       contextPercent = u.context.percent ?? null
-      costSeen = u.cost?.usd ?? null // 켜기 전에 쓴 비용은 기준으로만
     } catch {
       // 한도를 못 읽으면 체력 · 마나를 숨긴다
     }
@@ -732,7 +716,6 @@ export const register: Register = (on, options) => {
   on('session.measure', async ($, e, next) => {
     limits = limitsOf(e.rateLimits)
     contextPercent = e.context.percent ?? null
-    if (e.cost) addCost(e.cost.usd, await $.clock.now())
     $.ui.invalidate('ui.render')
     return next(e)
   })
@@ -740,12 +723,6 @@ export const register: Register = (on, options) => {
   // /clear · /resume · /branch 뒤에는 session.start 가 오지 않는다
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
     await load($)
-    // 이어 받은 대화의 지난 비용이 오늘 골드로 들어가지 않게 기준을 다시 잡는다
-    try {
-      costSeen = (await $.session.usage()).cost?.usd ?? costSeen
-    } catch {
-      // 비용을 못 읽으면 기준은 그대로
-    }
     return next(e)
   }).catch(async ($, e, next) => next(e))
 
@@ -773,7 +750,7 @@ export const register: Register = (on, options) => {
       const usage = cleanUsage(result.usage)
       const w = weightOf(usage)
       turnW += w
-      await addUsage($, w, usage)
+      await addUsage($, w, usage, result.usage.model)
       // 메인 대화의 단계가 끝나면: 캐시 재사용이 낮으면 캐스팅 실패(연출만, 손해 없음), 아니면 마법 적중 — W ÷ 10 데미지.
       // 서브에이전트 단계는 XP 만(새 서브에이전트의 첫 단계는 캐시가 비어 실패가 연달아 뜨기 쉽다)
       if (!e.agentId) {
@@ -892,7 +869,7 @@ export const register: Register = (on, options) => {
     // 터미널은 언제나 한 줄. 데스크톱 그림판(장면 320 × 128 + 글)은 84칸 · 10줄 이상에서만
     const roomy = e.surface !== 'terminal' && band === 'panel' && e.props.bodyColumns >= 84 && e.props.maxRows >= 10
     const art = roomy ? sceneArt(el, e.surface, sceneGrid(sceneState().input), v.name, 'band') : null
-    const mine = art ? bandPanel(el, art, v) : el.Text({ wrap: 'truncate-end', children: [bandLineText(v)] })
+    const mine = art ? bandPanel(el, art, v, coinArt(el, e.surface)) : el.Text({ wrap: 'truncate-end', children: [bandLineText(v)] })
     return el.Box({ flexDirection: 'column', children: [mine, below] }) as any
   })
 
@@ -909,7 +886,7 @@ export const register: Register = (on, options) => {
       // 데스크톱은 장면 480 × 192, 터미널은 장면(160칸 × 32줄)이 들어갈 만큼 큰 창에서만
       const big = e.surface !== 'terminal' || (e.props.bodyColumns >= 160 && e.props.scroll.bodyRows >= 44)
       const art = big ? sceneArt(el, e.surface, sceneGrid(sceneState().input), v.name, 'pane') : null
-      return card(el, art, v, tab, onTab, stageRoad(el, e.surface, v.progress.level)) as any
+      return card(el, art, v, tab, onTab, stageRoad(el, e.surface, v.progress.level), coinArt(el, e.surface)) as any
     }
     if (e.requestId !== PROBE) return next(e)
     const el: any = $.ui.resolve(e)

@@ -1,3 +1,4 @@
+import { FX } from './art3.ts'
 import { MAX_LEVEL, STAGES, STAT_MAX } from './balance.ts'
 import { heroFrame, heroSilhouette, tierOf } from './hero3.ts'
 import { ZERO, type LogEntry, type Sum } from './ledger.ts'
@@ -88,13 +89,23 @@ function gaugeText(icon: string, g: Gauge, reset: string, width: number): string
   return `${icon} ${xpBar(g.left / 100, width)} ${g.left}%${reset ? ` ${reset}` : ''}`
 }
 
-// 밴드 한 줄: "⚔️ 렌 Lv.15 ▓░░░░░░░ 14% · ❤️62 🔷41 · 🟢 슬라임 ▓▓░ · 오늘 +1,240"
+// 골드 = API 요금으로 친 달러(1 골드 = $1): "1,234.50"
+export function gold(usd: number): string {
+  const [whole, cents] = Math.max(0, usd).toFixed(2).split('.')
+  return `${comma(Number(whole))}.${cents}`
+}
+
+// 오늘 경험치 = 오늘 모든 창(세션)에서 쓴 토큰 전부(시전 · 주문서 · 외워 둠 · 꺼내 쓴 것)
+const todayTokens = (v: CardView) => v.today.in + v.today.out + v.today.cw + v.today.cr
+
+// 밴드 한 줄: "⚔️ 렌 Lv.15 ▓░░░░░░░ 14% · ❤️62 🔷41 · 🟢 슬라임 ▓▓░ · 오늘 +234M · 🪙 88.44"
 export function bandLineText(v: CardView): string {
   const p = v.progress
   const gauges = [v.limits.hp ? `❤️${v.limits.hp.left}` : '', v.limits.mp ? `🔷${v.limits.mp.left}` : ''].filter(Boolean).join(' ')
   const m = v.monster
   const monster = m ? `${m.emoji} ${m.name} ${xpBar(m.hp / m.maxHp, 3)}` : ''
-  return [`${p.stage.emoji} ${v.name} Lv.${p.level} ${xpBar(p.ratio, 8)} ${percent(p.ratio)}%`, gauges, monster, `오늘 +${comma(v.todayXp)}`].filter(Boolean).join(' · ')
+  const today = `오늘 +${shortNum(todayTokens(v))} · 🪙 ${gold(v.today.api)}`
+  return [`${p.stage.emoji} ${v.name} Lv.${p.level} ${xpBar(p.ratio, 8)} ${percent(p.ratio)}%`, gauges, monster, today].filter(Boolean).join(' · ')
 }
 
 // ---- 그림판 · 카드 ----
@@ -158,24 +169,29 @@ function backpackLine(v: CardView): string | null {
 // 밴드 오른쪽 글은 언제나 6줄 — 줄이 생겼다 사라지며 밴드 높이가 들썩이지 않게 빈 줄로 자리를 지킨다
 export const BAND_LINES = 6
 
-// 골드 = 달러(1 골드 = $1): "1,234.50"
-export function gold(usd: number): string {
-  const [whole, cents] = Math.max(0, usd).toFixed(2).split('.')
-  return `${comma(Number(whole))}.${cents}`
+// 금화 그림(9 × 9 를 장면처럼 2px 로 → 18 × 18). 데스크톱만 — 터미널은 글자 🪙
+let coinSvg: string | null = null
+export function coinArt(el: Els, surface: string): unknown {
+  if (surface === 'terminal' || !el.Svg) return null
+  coinSvg ??= rgbToSvg(toRgb(FX.coin), 2)
+  return el.Svg({ source: coinSvg, alt: '금화', width: 18, height: 18 })
 }
 
-// 오늘 전체 DPS(모든 세션 · 모든 토큰: 시전 · 주문서 · 외워 둠 · 꺼내 쓴 것) · 쓴 골드(세션 비용)
-function dpsLine(v: CardView): string {
-  const d = v.today
-  return `⚔️ 전체 DPS ${shortNum(d.in + d.out + d.cw + d.cr)} · 🪙 ${gold(d.usd)} 골드`
+// "오늘 경험치 +234M · (금화) 88.44 골드" — 금화 그림이 없으면 글자 🪙
+function goldRow(el: Els, indent: string, v: CardView, coin: unknown): unknown {
+  const tokens = `${indent}오늘 경험치 +${shortNum(todayTokens(v))} · `
+  const money = `${gold(v.today.api)} 골드`
+  if (!coin) return text(el, `${tokens}🪙 ${money}`)
+  return el.Box({ flexDirection: 'row', alignItems: 'center', children: [text(el, tokens), coin, text(el, ` ${money}`)] })
 }
 
-export function bandPanel(el: Els, art: unknown, v: CardView): unknown {
+export function bandPanel(el: Els, art: unknown, v: CardView, coin: unknown = null): unknown {
   const p = v.progress
   const done = v.quests.filter(q => q.done).length
   const blank = () => text(el, ' ')
   const gauges = gaugesLine(v)
   const backpack = backpackLine(v)
+  const quests = [v.quests.length ? `의뢰 ${done}/${v.quests.length}` : '', v.streak ? `🔥 ${v.streak}일` : ''].filter(Boolean).join(' · ')
   // 첫 줄에 칭호 · 이름 · 단계 · 레벨과 XP 막대(다음 레벨까지 남은 XP 는 카드 상태 탭에만)
   const xp = p.isMax ? '' : ` · XP ${xpBar(p.ratio, 10)} ${percent(p.ratio)}%`
   const lines: unknown[] = [
@@ -183,8 +199,9 @@ export function bandPanel(el: Els, art: unknown, v: CardView): unknown {
     gauges ? text(el, gauges) : blank(),
     // 배너는 상태 줄 자리에 — 줄 수를 늘리지 않는다
     v.banner ? text(el, v.banner, { bold: true, color: 'yellow' }) : text(el, `${p.stage.emoji} ${v.line}`),
-    text(el, `오늘 +${comma(v.todayXp)} XP${v.quests.length ? ` · 의뢰 ${done}/${v.quests.length}` : ''}${v.streak ? ` · 🔥 ${v.streak}일` : ''}`),
-    text(el, dpsLine(v)),
+    // 오늘 경험치는 토큰(레벨 XP 는 카드 상태 탭) · 금화 · 골드, 그 아래 의뢰 · 출석
+    goldRow(el, '', v, coin),
+    quests ? text(el, quests) : blank(),
     backpack ? text(el, backpack, { dimColor: true }) : blank(),
   ]
   return el.Box({ flexDirection: 'row', columnGap: 2, children: [art, el.Box({ flexDirection: 'column', justifyContent: 'center', children: lines })] })
@@ -264,7 +281,7 @@ function questTab(el: Els, v: CardView): unknown[] {
 // 쏜 마법: 「🎯 4발 중 4발 적중」
 const shots = (s: { casts: number; hits: number }) => (s.casts > 0 ? `🎯 ${s.casts}발 중 ${s.hits}발 적중` : '🎯 아직 쏜 마법이 없어요')
 
-function recordTab(el: Els, v: CardView): unknown[] {
+function recordTab(el: Els, v: CardView, coin: unknown): unknown[] {
   const t = v.turn
   const turnRows = t
     ? [
@@ -291,20 +308,20 @@ function recordTab(el: Els, v: CardView): unknown[] {
       ...turnRows,
       sessionRow,
       text(el, `  오늘    💥 위력 ${shortNum(d.w)} → +${comma(v.todayXp)} XP · 🎯 마법 적중률 ${rate !== null ? `${rate}% (${d.casts}발 중 ${d.hits}발)` : '—'}`),
-      text(el, `           ${dpsLine(v)}`),
+      goldRow(el, '           ', v, coin),
       ...(backpack ? [text(el, `  ${backpack}`)] : []),
     ]),
     section(el, '모험 일지', journal),
   ]
 }
 
-export function card(el: Els, art: unknown, v: CardView, tab: Tab = 1, onTab: (t: Tab) => void = () => {}, road?: unknown[]): unknown {
+export function card(el: Els, art: unknown, v: CardView, tab: Tab = 1, onTab: (t: Tab) => void = () => {}, road?: unknown[], coin: unknown = null): unknown {
   const tabs = ([1, 2, 3] as const).map(t =>
     el.Button
       ? el.Button({ key: `tab${t}`, label: ['상태', '의뢰', '기록'][t - 1], hotkey: String(t), variant: t === tab ? 'primary' : 'secondary', onPress: () => onTab(t) })
       : text(el, `[${t}] ${['상태', '의뢰', '기록'][t - 1]}`, t === tab ? { bold: true } : { dimColor: true }),
   )
-  const body = tab === 1 ? statusTab(el, v, road) : tab === 2 ? questTab(el, v) : recordTab(el, v)
+  const body = tab === 1 ? statusTab(el, v, road) : tab === 2 ? questTab(el, v) : recordTab(el, v, coin)
   return el.Box({
     flexDirection: 'column',
     rowGap: 1,

@@ -15,8 +15,7 @@ type Seen = { commands: string[]; toasts: { text: string; timeoutMs?: number }[]
 // 키트에는 엔진이 없어서 플러그인이 부르는 $ 호출에 테스트가 맨 아래에서 답한다.
 // 테스트의 훅은 모두 첫 $ 호출 전에 걸어야 하므로: beneath → (테스트 훅) → start
 // failMeta: profile · log · q: 같은 알림 칸 저장만 실패시킨다(테스트 중간에 켤 수 있다)
-// cost: $.session.usage() 가 알려 주는 이 세션 비용(달러, 테스트 중간에 바꿀 수 있다)
-type BeneathOpts = { now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string; failSet?: boolean; failMeta?: boolean; beforeKeys?: () => Promise<void>; limits?: { kind: string; percentUsed: number; resetsAt?: string }[]; cost?: number }
+type BeneathOpts = { now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string; failSet?: boolean; failMeta?: boolean; beforeKeys?: () => Promise<void>; limits?: { kind: string; percentUsed: number; resetsAt?: string }[] }
 
 function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen } {
   const clock = mock.clock(on, { now: opts.now ?? Date.UTC(2026, 9, 16, 3, 0) })
@@ -46,7 +45,7 @@ function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen
   on('session.end', async () => ({}))
   // /clear · /resume 흉내: 설정 훅은 아래에 없으니 테스트가 맨 아래에서 답한다
   on('classic.SessionStart', async () => ({}) as any)
-  on('session.usage', async () => ({ value: { startedAt: 0, context: { window: 1_000_000, percent: 10 }, rateLimits: opts.limits ?? [], ...(opts.cost !== undefined ? { cost: { usd: opts.cost } } : {}) } }))
+  on('session.usage', async () => ({ value: { startedAt: 0, context: { window: 1_000_000, percent: 10 }, rateLimits: opts.limits ?? [] } }))
   on('session.measure', async (_$, e) => ({ changed: e.changed }))
   // 맨 아래 그림: 스피너는 단어 + suffix, 밴드는 다른 Mod 대신 opts.bottomBand
   on('ui.render', { component: 'Spinner' }, async ($, e) => {
@@ -147,9 +146,8 @@ async function oneTurn($: Engine, turnId = 't') {
 test('다른 세션 몫과 어제 몫이 합계에 들어간다', async ($, on) => {
   beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(960_000), [`d:${TODAY}:y`]: entry(500_000) } })
   await start($)
-  const text = await bandText($)
-  expect(text).toMatch(new RegExp(`Lv\\.${levelOf(1460)}(?!\\d)`))
-  expect(text).toMatch(/오늘 \+500 XP/)
+  expect(await bandText($)).toMatch(new RegExp(`Lv\\.${levelOf(1460)}(?!\\d)`))
+  expect(await cardText($)).toMatch(/오늘 \+500 XP/) // 밴드의 「오늘 경험치」는 토큰 — XP 는 카드 상태 탭
 })
 
 test('두 세션이 서로 덮어쓰지 않는다', async ($, on) => {
@@ -174,7 +172,7 @@ test('60초 안에 다른 세션 증가가 보인다', async ($, on) => {
   await start($)
   seen.store.set(`d:${TODAY}:y`, entry(800_000))
   await clock.advance(60_000)
-  expect(await bandText($)).toMatch(/오늘 \+800 XP/)
+  expect(await cardText($)).toMatch(/오늘 \+800 XP/)
 })
 
 test('자정이 지나면 오늘 XP 가 새로 시작한다', async ($, on) => {
@@ -182,9 +180,9 @@ test('자정이 지나면 오늘 XP 가 새로 시작한다', async ($, on) => {
   answerStep(on, 34_000)
   await start($)
   await oneTurn($)
-  expect(await bandText($)).toMatch(/오늘 \+34 XP/)
+  expect(await cardText($)).toMatch(/오늘 \+34 XP/)
   await clock.advance(120_000)
-  const text = await bandText($)
+  const text = await cardText($)
   expect(text).toMatch(/오늘 \+0 XP/)
   expect(text).toMatch(new RegExp(`Lv\\.${levelOf(994)}(?!\\d)`))
 })
@@ -1264,9 +1262,8 @@ test('서브에이전트 단계는 연출 없이 XP 만', async ($, on) => {
   await start($)
   await $.turn.start({ text: 'hi', turnId: 't' })
   await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1, agentId: 'a' } as any))
-  const band = await bandText($)
-  expect(band).not.toMatch(/마법 적중|주문이 꼬였다/)
-  expect(band).toMatch(/오늘 \+35 XP/)
+  expect(await bandText($)).not.toMatch(/마법 적중|주문이 꼬였다/)
+  expect(await cardText($)).toMatch(/오늘 \+35 XP/)
   expect(await cardText($)).toMatch(/🟢 슬라임 HP 300\/300/)
 })
 
@@ -1453,49 +1450,54 @@ test('마법 쏜 수 · 적중 수가 그날 칸에 남는다(서브에이전트
 })
 
 
-// ---- 3.0.3: 오늘 전체 DPS · 골드 ----
+// ---- 3.0.4: 오늘 경험치(토큰) · 골드(토큰 × 모델 값, Vorssaint 처럼) ----
 
-const measureCost = ($: Engine, usd: number) =>
-  $.session.measure({ context: { window: 1_000_000, percent: 10 }, rateLimits: [], cost: { usd }, changed: ['cost'] } as any)
-
-test('세션 비용이 늘어난 만큼 오늘 골드로 쌓인다(켤 때 이미 있던 비용은 빼고)', async ($, on) => {
-  const opts: BeneathOpts = { now: NOON, cost: 1.5 }
-  const { seen } = beneath(on, opts)
+test('단계마다 그 모델 값으로 골드가 쌓인다', async ($, on) => {
+  beneath(on, { now: NOON })
+  answerUsage(on, { model: 'claude-sonnet-5-5', output_tokens: 1_000_000 })
   await start($)
-  await measureCost($, 2)
-  expect(await bandText($)).toMatch(/🪙 0\.50 골드/)
-  await measureCost($, 2.75)
-  expect(await bandText($)).toMatch(/🪙 1\.25 골드/)
-  await $.turn.start({ text: 'hi', turnId: 't' })
-  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
-  expect(Math.round(((seen.store.get(`d:${TODAY}:me`) as { usd?: number }).usd ?? 0) * 100)).toBe(125)
+  await oneTurn($)
+  expect(await bandText($)).toMatch(/ 10\.00 골드/)
 })
 
-test('/resume 로 비용이 뛰어도 그 몫은 오늘 골드가 아니다', async ($, on) => {
-  const opts: BeneathOpts = { now: NOON, cost: 0 }
-  beneath(on, opts)
+test('값을 매기기 전 칸(앞 버전 · 다른 창)은 기본 모델 값으로 친다', async ($, on) => {
+  beneath(on, { now: NOON, store: { [`d:${TODAY}:other`]: { ...entry(0), out: 1_000_000 } } })
+  answerUsage(on, { model: 'claude-sonnet-5-5', output_tokens: 1_000_000 })
   await start($)
-  await measureCost($, 1)
-  opts.cost = 40 // 이어 받은 대화의 지난 비용
-  await $.classic.SessionStart({ source: 'resume' } as any)
-  await measureCost($, 40.5)
-  expect(await bandText($)).toMatch(/🪙 1\.50 골드/)
+  await oneTurn($)
+  expect(await bandText($)).toMatch(/ 30\.00 골드/)
 })
 
-test('/clear 로 비용 장부가 0 부터 다시 세면 새로 쓴 만큼만 더한다', async ($, on) => {
-  const opts: BeneathOpts = { now: NOON, cost: 3 }
-  beneath(on, opts)
+test('이 창이 앞 버전으로 쌓은 오늘 몫도 기본 모델 값으로 넣고 이어 센다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${TODAY}:me`]: { ...entry(0), out: 1_000_000 } } })
+  answerUsage(on, { model: 'claude-haiku-4-5', output_tokens: 1_000_000 })
   await start($)
-  await measureCost($, 4)
-  await measureCost($, 0.25)
-  expect(await bandText($)).toMatch(/🪙 1\.25 골드/)
+  await oneTurn($)
+  expect(await bandText($)).toMatch(/ 25\.00 골드/)
+  expect(Math.round(((seen.store.get(`d:${TODAY}:me`) as { api?: number }).api ?? 0) * 100)).toBe(2500)
 })
 
-test('오늘 전체 DPS 는 모든 세션 · 모든 토큰의 합', async ($, on) => {
+test('밴드 오늘 경험치는 오늘 모든 창 · 모든 토큰', async ($, on) => {
   beneath(on, { now: NOON, store: { [`d:${TODAY}:other`]: { ...entry(0), in: 1_000, out: 2_000, cw: 3_000, cr: 994_000 } } })
   answerUsage(on, { input_tokens: 500_000, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 500_000 })
   await start($)
   await oneTurn($)
-  expect(await bandText($)).toMatch(/⚔️ 전체 DPS 2M/)
+  expect(await bandText($)).toMatch(/오늘 경험치 \+2M/)
+  expect(await bandText($, 'terminal')).toMatch(/오늘 \+2M · 🪙 /)
 })
 
+test('기록 탭: 오늘 줄 아래에 오늘 경험치 · 금화 · 골드(데스크톱은 금화 그림, 터미널은 🪙)', async ($, on) => {
+  beneath(on, { now: NOON })
+  answerUsage(on, { model: 'claude-sonnet-5-5', output_tokens: 1_000_000 })
+  await start($)
+  await oneTurn($)
+  const term = await openCard($, 'terminal')
+  await term.press({ key: 'tab3' })
+  expect(await term.find({ text: /오늘 경험치 \+1M · 🪙 10\.00 골드/ })).toBeTruthy()
+  const desk = await openCard($)
+  await desk.press({ key: 'tab3' })
+  expect(await desk.find({ text: /오늘 경험치 \+1M ·/ })).toBeTruthy()
+  expect(await desk.find({ text: / 10\.00 골드/ })).toBeTruthy()
+  expect((await desk.findAll({ type: 'Svg' })).length).toBe(1)
+  expect(JSON.stringify(await desk.drawn())).not.toMatch(/🪙|전체 DPS/)
+})

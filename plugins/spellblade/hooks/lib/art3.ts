@@ -3001,8 +3001,8 @@ export const MONSTER_ART: readonly { frames: { idle0: Grid; idle1: Grid; attack:
 export const MONSTER_CHECK: readonly string[] = ['27743b96', 'd0b3771a', 'd3743821', '5cbe5fc2', '8e4620d5', '7761448d', 'f3e13855', 'c546e50b', '807c6bd7', '15e8a5ec', 'c6c9c7a5', '3b297444']
 
 // ---------- 효과(음영 없이 글자마다 색) ----------
-// 칼 궤적은 원의 중심이 (0, 13), 모닥불은 맨 아래 줄이 땅 줄, 빛기둥은 마검사 뒤에 그린다
-export type FxId = 'slashArc' | 'castGlow1' | 'castGlow2' | 'bolt' | 'smoke' | 'sweat' | 'poof1' | 'poof2' | 'pillar1' | 'pillar2' | 'zzz' | 'fire1' | 'fire2'
+// 칼 궤적은 원의 중심이 (0, 13), 모닥불은 맨 아래 줄이 땅 줄, 빛기둥은 마검사 뒤에 그린다. 금화는 밴드 · 기록 탭의 골드 옆
+export type FxId = 'slashArc' | 'castGlow1' | 'castGlow2' | 'bolt' | 'smoke' | 'sweat' | 'poof1' | 'poof2' | 'pillar1' | 'pillar2' | 'zzz' | 'fire1' | 'fire2' | 'coin'
 export const FX: Record<FxId, { grid: Grid; palette: Palette }> = {
   slashArc: { palette: { W: 0xffffff, L: 0xbfe8ff, B: 0x7ac8ff, D: 0x4a96e0 }, grid: [
     '.............',
@@ -3325,6 +3325,17 @@ export const FX: Record<FxId, { grid: Grid; palette: Palette }> = {
     '.............',
     '..LLL....LLL.',
     '.lll......lll',
+  ] },
+  coin: { palette: { K: 0x5a3606, L: 0xffe680, Y: 0xffc526, D: 0xc87a10, S: 0xd88a12, W: 0xfff8d0 }, grid: [
+    '..KKKKK..',
+    '.KLLLLLK.',
+    'KLYYYYYDK',
+    'KLYWSYYDK',
+    'KLYWSYYDK',
+    'KLYWSYYDK',
+    'KLYYYYYDK',
+    '.KDDDDDK.',
+    '..KKKKK..',
   ] },
 }
 

@@ -625,7 +625,7 @@ import type { Grid, Palette } from './sprites.ts'
     o.append("export const MONSTER_CHECK: readonly string[] = [" + ', '.join(f"'{fnv(monster_rgb(t, 'idle0'))}'" for t in range(len(MONSTER_FRAMES))) + "]\n")
 
     o.append("// ---------- 효과(음영 없이 글자마다 색) ----------")
-    o.append("// 칼 궤적은 원의 중심이 (0, 13), 모닥불은 맨 아래 줄이 땅 줄, 빛기둥은 마검사 뒤에 그린다")
+    o.append("// 칼 궤적은 원의 중심이 (0, 13), 모닥불은 맨 아래 줄이 땅 줄, 빛기둥은 마검사 뒤에 그린다. 금화는 밴드 · 기록 탭의 골드 옆")
     o.append("export type FxId = " + " | ".join(f"'{k}'" for k in FX))
     o.append("export const FX: Record<FxId, { grid: Grid; palette: Palette }> = {")
     for k, (g, pal) in FX.items(): o.append(f"  {k}: {{ palette: {ts_pal(pal)}, grid: {ts_grid(g, '  ')} }},")

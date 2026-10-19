@@ -98,8 +98,15 @@ test('마법 쏜 수 · 적중 수도 칸에 넣고 더한다', async () => {
   expect(ZERO).toMatchObject({ casts: 0, hits: 0 })
 })
 
-test('쓴 달러(usd)도 칸에 넣고 더한다', async () => {
-  const a = { w: 1, bonus: 0, swings: 0, updatedAt: 1, usd: 1.25 }
+test('골드(api, 달러)도 칸에 넣고 더한다', async () => {
+  const a = { w: 1, bonus: 0, swings: 0, updatedAt: 1, api: 1.25 }
   expect(isEntry(a)).toBe(true)
-  expect(Math.round(addSum(a, { ...a, usd: 0.5 }).usd * 100)).toBe(175)
+  expect(isEntry({ ...a, api: -1 })).toBe(false)
+  expect(Math.round(addSum(a, { ...a, api: 0.5 }).api * 100)).toBe(175)
+})
+
+test('값(api)이 없는 칸은 그 토큰을 기본 모델 값으로 쳐서 더한다', async () => {
+  const old = { w: 1, bonus: 0, swings: 0, updatedAt: 1, out: 1_000_000 }
+  const priced = { w: 1, bonus: 0, swings: 0, updatedAt: 1, out: 1_000_000, api: 1.5 }
+  expect(Math.round(addSum(addSum(ZERO, old), priced).api * 100)).toBe(2150)
 })

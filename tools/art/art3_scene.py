@@ -1,4 +1,4 @@
-# 3차 장면 재료 원본(art3.py 가 가져다 쓴다): 효과 13종 · 글꼴 · 배경(낮 · 밤 160 × 64)
+# 3차 장면 재료 원본(art3.py 가 가져다 쓴다): 효과 13종 · 금화 · 글꼴 · 배경(낮 · 밤 160 × 64)
 # 효과 · 배경은 음영 없이 글자마다 색이 정해진 그림이다. 글꼴은 '#' 칸만 있는 모양이고 색은 장면이 칠한다.
 # 효과의 맨 아래 줄은 땅에 놓는 효과(모닥불)라면 땅 줄에 닿는다.
 # 모두 이 프로젝트를 위해 새로 그린 그림이다(메이플스토리 그림을 가져오지 않는다).
@@ -157,11 +157,18 @@ def fire(frame):
     return rows(c), {'F': 0xff6a1a, 'Y': 0xffd040, 'W': 0xfff4b8, 'L': 0x8a5a32, 'l': 0x6a4022, 'S': 0xffc060}
 
 
+def coin():
+    # 밴드 · 기록 탭의 골드 옆 금화(9 × 9, 장면과 같은 2px 점 → 18 × 18): 왼쪽 위가 밝은 테, 가운데 세로 홈
+    art = ['..KKKKK..', '.KLLLLLK.', 'KLYYYYYDK', 'KLYWSYYDK', 'KLYWSYYDK', 'KLYWSYYDK', 'KLYYYYYDK', '.KDDDDDK.', '..KKKKK..']
+    return art, {'K': 0x5a3606, 'L': 0xffe680, 'Y': 0xffc526, 'D': 0xc87a10, 'S': 0xd88a12, 'W': 0xfff8d0}
+
+
 def make_fx():
     return {
         'slashArc': slash_arc(), 'castGlow1': cast_glow(1), 'castGlow2': cast_glow(2), 'bolt': bolt(),
         'smoke': smoke(), 'sweat': sweat(), 'poof1': poof(1), 'poof2': poof(2),
         'pillar1': pillar(1), 'pillar2': pillar(2), 'zzz': zzz(), 'fire1': fire(1), 'fire2': fire(2),
+        'coin': coin(),
     }
 
 

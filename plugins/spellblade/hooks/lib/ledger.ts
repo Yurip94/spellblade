@@ -1,18 +1,20 @@
 import { BONUS, STAGES, type StageId } from './balance.ts'
+import { estimateCost } from './price.ts'
 import { xpOf } from './progress.ts'
 
 // 저장 칸: 세션마다 자기 칸(d:<날짜>:<세션>)에만 쓰고, 읽을 때 합친다
 
 // 1차 칸: w · bonus · swings · updatedAt. 2차에서 더한 칸은 없을 수 있다(없으면 0)
-// casts · hits: 메인 대화 단계마다 쏜 마법 수 · 적중 수(3.0.2), usd: 그날 늘어난 세션 비용(달러, /cost 와 같은 값 — 3.0.3)
-const ADDED = ['in', 'out', 'cw', 'cr', 'turns', 'fast', 'clean', 'combo', 'commits', 'prs', 'agents', 'skills', 'night', 'casts', 'hits', 'usd'] as const
+// casts · hits: 메인 대화 단계마다 쏜 마법 수 · 적중 수(3.0.2)
+// api: 그날 쓴 토큰을 단계마다 그 모델의 API 요금으로 친 값(달러 = 골드, 3.0.4) — 없는 칸(앞 버전)은 토큰을 기본 모델 값으로 친다
+const ADDED = ['in', 'out', 'cw', 'cr', 'turns', 'fast', 'clean', 'combo', 'commits', 'prs', 'agents', 'skills', 'night', 'casts', 'hits', 'api'] as const
 type Added = (typeof ADDED)[number]
 
 export type Entry = { w: number; bonus: number; swings: number; updatedAt: number } & Partial<Record<Added, number>>
 export type Sum = { w: number; bonus: number; swings: number } & Record<Added, number>
 export type SumFilter = { day?: string; notDay?: string; excludeSession?: string; onlySession?: string }
 
-// 합칠 때: clean · combo 는 가장 큰 값, skills 는 비트 합, 나머지는 더한다
+// 합칠 때: clean · combo 는 가장 큰 값, skills 는 비트 합, 나머지는 더한다(api 가 없는 칸은 토큰을 기본 모델 값으로 쳐서)
 const MAXED = new Set<keyof Sum>(['clean', 'combo'])
 const BITS = new Set<keyof Sum>(['skills'])
 const FIELDS: (keyof Sum)[] = ['w', 'bonus', 'swings', ...ADDED]
@@ -44,15 +46,20 @@ export function isEntry(v: unknown): v is Entry {
   return ADDED.every(k => o[k] === undefined || count(o[k]))
 }
 
+// 값을 매기기 전에 쌓인 칸(3.0.4 전 · 다른 버전의 창)은 모델을 모르니 기본 모델 값으로
+export function apiOf(e: Sum | Entry): number {
+  return e.api ?? estimateCost({ in: e.in ?? 0, out: e.out ?? 0, cw: e.cw ?? 0, cr: e.cr ?? 0 })
+}
+
 export function normalizeEntry(e: Entry): Required<Entry> {
-  return { ...ZERO, ...e, ...Object.fromEntries(ADDED.map(k => [k, e[k] ?? 0])) } as Required<Entry>
+  return { ...ZERO, ...e, ...Object.fromEntries(ADDED.map(k => [k, e[k] ?? 0])), api: apiOf(e) } as Required<Entry>
 }
 
 export function addSum(a: Sum | Entry, b: Sum | Entry): Sum {
   const out = { ...ZERO }
   for (const k of FIELDS) {
-    const x = a[k] ?? 0
-    const y = b[k] ?? 0
+    const x = k === 'api' ? apiOf(a) : a[k] ?? 0
+    const y = k === 'api' ? apiOf(b) : b[k] ?? 0
     out[k] = MAXED.has(k) ? Math.max(x, y) : BITS.has(k) ? x | y : x + y
   }
   return out
