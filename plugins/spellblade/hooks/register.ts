@@ -12,7 +12,7 @@ import { cleanUsage, equipmentAt, levelOf, progressOf, stageOf, tierOf, weightOf
 import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
 import { toRgb } from './lib/rgb.ts'
 import { castDamage, newBattle, retaliate, settle, skillDamage, strike, type Battle } from './lib/battle.ts'
-import { MONSTERS } from './lib/monsters.ts'
+import { monsterDefOf, monsterIndexOf } from './lib/roster.ts'
 import { sceneGrid, sceneKey, type SceneInput } from './lib/scene.ts'
 import { demoFrame, poseAt, thenFlash, withFlash, type Activity, type Mood } from './lib/status.ts'
 import { bandLineText, bandModeOf, bandPanel, baseView, card, coinArt, probePane, sceneArt, spinnerSuffix, stageRoad, type CardView, type Els, type Tab } from './lib/views.ts'
@@ -215,7 +215,7 @@ function snapshot(): CardView {
   const demo = demoNow()
   if (demo) {
     // 데모 단계의 첫 레벨(단계 0 은 Lv.1)과 그 단계 몬스터
-    return { ...baseView(progressOf(xpForLevel(Math.max(1, demo.tier * TIER_LEVELS)))), name, line: demo.line, log, isDemo: true, monster: monsterView(newBattle(demo.tier, 0)) }
+    return { ...baseView(progressOf(xpForLevel(Math.max(1, demo.tier * TIER_LEVELS)))), name, line: demo.line, log, isDemo: true, monster: monsterView(newBattle(demoSpawn(demo.tier), 0)) }
   }
   const progress = progressOf(totalXp())
   const life = lifetime()
@@ -248,8 +248,13 @@ function snapshot(): CardView {
   }
 }
 
+// 데모 단계(장비 단계)의 첫 레벨에 나오는 몬스터
+function demoSpawn(tier: number): { index: number; boss: number } {
+  return { index: monsterIndexOf(Math.max(1, tier * TIER_LEVELS)), boss: 0 }
+}
+
 function monsterView(b: Battle): CardView['monster'] {
-  const m = MONSTERS[b.tier]
+  const m = monsterDefOf(b)
   return { name: m.name, emoji: m.emoji, hp: b.hp, maxHp: b.maxHp }
 }
 
@@ -266,7 +271,7 @@ function sceneState(): { input: SceneInput; key: string } {
     tier: demo ? demo.tier : tierOf(v.progress.level),
     pose: scene.pose,
     frame,
-    battle: demo ? newBattle(demo.tier, 0) : battle,
+    battle: demo ? newBattle(demoSpawn(demo.tier), 0) : battle,
     now: clockNow,
     dimMagic: magicDim(scene.pose),
   }
@@ -334,7 +339,7 @@ async function loadNow($: EngineInterface): Promise<void> {
 
   // 이 창이 켜지기 전에 오른 레벨은 다시 알리지 않는다
   const levelNow = levelOf(totalXp())
-  if (!battle) battle = newBattle(tierOf(levelNow), totalXp())
+  if (!battle) battle = newBattle({ index: monsterIndexOf(levelNow), boss: 0 }, totalXp())
   loaded = true
   levelSeen = Math.max(isProfile(profile) ? profile.lastLevel : 0, levelNow)
 
@@ -432,7 +437,7 @@ async function tick($: EngineInterface): Promise<void> {
   applyHits(now, at => now - at >= ABORT_GRACE_MS)
   if (battle) {
     const xp = totalXp()
-    battle = settle(battle, now, tierOf(levelOf(xp)), xp)
+    battle = settle(battle, now, { index: monsterIndexOf(levelOf(xp)), boss: 0 }, xp)
   }
   const key = sceneState().key
   if (key !== lastDrawnKey) {
@@ -814,7 +819,7 @@ export const register: Register = (on, options) => {
       runOn(dayKey(clockNow, tz))
       combo += 1
       activity = withFlash(activity, 'slash', clockNow, `${skill.name}!${combo >= 3 ? ` ×${combo} 콤보` : ''}`)
-      if (battle) battle = strike(battle, skillDamage(skill.id, battle.tier), clockNow)
+      if (battle) battle = strike(battle, skillDamage(skill.id, tierOf(levelOf(totalXp()))), clockNow)
       $.ui.invalidate('ui.render')
     }
     const out = await next(e)

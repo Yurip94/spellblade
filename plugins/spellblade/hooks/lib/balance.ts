@@ -92,6 +92,7 @@ export const MS = {
   monsterHit: 300,     // 맞아서 하얗게
   monsterAttack: 600,  // 반격
   breath: 800,         // 숨쉬기 한 박자
+  revive: 1200,        // 보스가 되살아나는 연출
   castResult: 700,     // 마법 적중 · 캐스팅 실패 연출
   fireFrame: 800,      // 모닥불이 흔들리는 박자(잠들면 멈춘다)
 } as const
@@ -112,8 +113,7 @@ export const MONSTER_HP_BASE = 300
 export const MONSTER_HP_GROWTH = 1.1
 export const FINAL_BOSS_EVERY = 10
 
-// 3차 전투: 몬스터 체력(장비 단계마다) · 도구 한 번의 데미지(단계마다 25% 씩 더) · 영창 데미지 = W ÷ 10
-export const MONSTER_HP = [300, 400, 540, 720, 960, 1280, 1700, 2250, 3000, 4000, 5300, 7000] as const
+// 전투: 도구 한 번의 데미지(장비 단계마다 25% 씩 더) · 영창 데미지 = W ÷ 10. 몬스터 체력은 roster.ts monsterHp
 export const SKILL_TIER_BONUS = 0.25 // 장비 단계마다 도구 데미지 +25%
 export const SKILL_DAMAGE: Record<SkillId, number> = { eye: 18, track: 15, forge: 30, create: 36, storm: 40, ranged: 25, clone: 50, tactics: 12, summon: 28, slash: 20 }
 export const CAST_DAMAGE_DIV = 10

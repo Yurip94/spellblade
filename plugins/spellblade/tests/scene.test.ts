@@ -1,6 +1,10 @@
 import { expect, test } from 'claude-code/testing'
 import { BACKDROPS } from '../hooks/lib/art3.ts'
-import { newBattle, settle, strike } from '../hooks/lib/battle.ts'
+import { newBattle as newBattle4, settle as settle4, strike } from '../hooks/lib/battle.ts'
+
+// 3.0 장면 시험: 3.0 그림 단계 t(0 ~ 11)로 보이는 일반 몬스터
+const newBattle = (t: number, xp: number) => newBattle4({ index: Math.ceil((t * 33) / 12), boss: 0 }, xp)
+const settle = (b: ReturnType<typeof newBattle>, now: number, t: number, xp: number) => settle4(b, now, { index: Math.ceil((t * 33) / 12), boss: 0 }, xp)
 import { heroFrame, type HeroPose } from '../hooks/lib/hero3.ts'
 import { MONSTERS, monsterFrame } from '../hooks/lib/monsters.ts'
 import { rgbToSvg, toRgb, type RgbGrid } from '../hooks/lib/rgb.ts'

@@ -226,7 +226,7 @@ test('터미널 밴드는 그림 없이 한 줄, 몬스터가 보인다', async 
   const t = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'AbovePrompt', props: BAND() })
   expect(await t.find({ type: 'Raster' })).toBeFalsy()
   expect(await t.find({ type: 'Svg' })).toBeFalsy()
-  expect(await t.find({ text: /🟢 슬라임 [▓░]{3}/ })).toBeTruthy()
+  expect(await t.find({ text: /🎯 허수아비 [▓░]{3}/ })).toBeTruthy()
   const d = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
   expect(await d.find({ type: 'Svg' })).toBeTruthy()
   expect(await d.find({ type: 'Raster' })).toBeFalsy()
@@ -753,7 +753,7 @@ test('상태 탭에 몬스터 체력', async ($, on) => {
   beneath(on, { now: NOON })
   await start($)
   const m = await openCard($)
-  expect(await m.find({ text: /🟢 슬라임 HP 300\/300/ })).toBeTruthy()
+  expect(await m.find({ text: /🎯 허수아비 HP 300\/300/ })).toBeTruthy()
 })
 
 test('2 를 누르면 의뢰 탭', async ($, on) => {
@@ -1243,10 +1243,10 @@ test('도구를 부르면 몬스터 체력이 준다', async ($, on) => {
   answerTools(on)
   await start($)
   await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
-  expect(await cardText($)).toMatch(/🟢 슬라임 HP 282\/300/)
+  expect(await cardText($)).toMatch(/🎯 허수아비 HP 282\/300/)
 })
 
-test('몬스터를 잡으면 연기 뒤 새 슬라임', async ($, on) => {
+test('몬스터를 잡으면 연기 뒤 같은 단계의 새 몬스터', async ($, on) => {
   const { clock } = beneath(on, { now: NOON })
   toolMode = 'ok'
   answerTools(on)
@@ -1254,7 +1254,7 @@ test('몬스터를 잡으면 연기 뒤 새 슬라임', async ($, on) => {
   for (let i = 0; i < 17; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
   expect(await cardText($)).toMatch(/HP 0\/300/)
   await clock.advance(1_300)
-  expect(await cardText($)).toMatch(/🟢 슬라임 HP 300\/300/)
+  expect(await cardText($)).toMatch(/🎯 허수아비 HP 300\/300/)
 })
 
 test('캐시 재사용이 낮으면 캐스팅 실패', async ($, on) => {
@@ -1286,7 +1286,7 @@ test('서브에이전트 단계는 연출 없이 XP 만', async ($, on) => {
   await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1, agentId: 'a' } as any))
   expect(await bandText($)).not.toMatch(/마법 적중|주문이 꼬였다/)
   expect(await cardText($)).toMatch(/오늘 \+35 XP/)
-  expect(await cardText($)).toMatch(/🟢 슬라임 HP 300\/300/)
+  expect(await cardText($)).toMatch(/🎯 허수아비 HP 300\/300/)
 })
 
 test('Esc 로 끊긴 도구는 반격이 아니다', async ($, on) => {
@@ -1319,23 +1319,23 @@ test('그냥 오류는 1초 뒤 반격', async ($, on) => {
   expect(await bandText($)).toMatch(/윽, 반격당했다/)
 })
 
-test('레벨 5 가 되면 다음 몬스터는 달팽이', async ($, on) => {
-  const { clock } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(5_656_000) } })
+test('Lv.4 가 되면 다음 몬스터는 슬라임(3레벨마다)', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry((xpForLevel(4) - 1) * 1000) } })
   toolMode = 'ok'
   answerTools(on)
   answerStep(on, 1_000)
   await start($)
   await oneTurn($)
-  expect(await cardText($)).toMatch(/🟢 슬라임/)
+  expect(await cardText($)).toMatch(/🎯 허수아비/)
   for (let i = 0; i < 17; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
   await clock.advance(1_300)
-  expect(await cardText($)).toMatch(/🐌 달팽이 HP 400\/400/)
+  expect(await cardText($)).toMatch(/🟢 슬라임 HP 330\/330/)
 })
 
 test('높은 레벨로 켜면 그 단계 몬스터로 시작한다', async ($, on) => {
   beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(xpForLevel(35) * 1000) } })
   await start($)
-  expect(await cardText($)).toMatch(/🗿 골렘 HP 2,250\/2,250/)
+  expect(await cardText($)).toMatch(/🪰 거대 파리 HP 856\/856/)
 })
 
 test('턴이 끝나고 2분 뒤 모닥불', async ($, on) => {
@@ -1368,9 +1368,9 @@ test('reset 하면 몬스터도 처음부터', async ($, on) => {
   beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(xpForLevel(35) * 1000) } })
   answerAsk(on, '처음부터')
   await start($)
-  expect(await cardText($)).toMatch(/🗿 골렘/)
+  expect(await cardText($)).toMatch(/🪰 거대 파리/)
   await blade($, 'reset')
-  expect(await cardText($)).toMatch(/🟢 슬라임 HP 300\/300/)
+  expect(await cardText($)).toMatch(/🎯 허수아비 HP 300\/300/)
 })
 
 // 엔진은 터진 그리기 훅을 건너뛰고 아래 것만 그린다 — 우리 글이 실제로 나왔는지 본다(2.0 부터 있던 「Invalid Date」)

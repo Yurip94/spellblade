@@ -68,7 +68,7 @@ const fakeEls = {
 }
 
 test('sceneArt: 데스크톱은 장면 Svg(밴드 2px · 카드 3px)와 이름표, 터미널 카드는 Raster', async () => {
-  const g = sceneGrid({ mode: 'battle', tier: 0, pose: 'idle', frame: 0, battle: newBattle(0, 0), now: 0, dimMagic: false })
+  const g = sceneGrid({ mode: 'battle', tier: 0, pose: 'idle', frame: 0, battle: newBattle({ index: 0, boss: 0 }, 0), now: 0, dimMagic: false })
   const band = sceneArt(fakeEls, 'desktop', g, '<렌>', 'band') as Record<string, unknown>
   expect([band.type, band.width, band.height]).toEqual(['Svg', 320, 128])
   expect(String(band.source)).toContain('&lt;렌&gt;')

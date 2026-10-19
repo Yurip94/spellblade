@@ -1,6 +1,6 @@
 import { BACKDROPS, FX, GLYPHS, MONSTER_ART, type FxId } from './art3.ts'
 import { MS } from './balance.ts'
-import { monsterPoseAt, type Battle } from './battle.ts'
+import { legacyMonsterTier, monsterPoseAt, type Battle } from './battle.ts'
 import { heroFrame, type HeroPose } from './hero3.ts'
 import { monsterFrame } from './monsters.ts'
 import { blit, escapeXml, mixRgb, toRgb, type RgbGrid } from './rgb.ts'
@@ -75,7 +75,8 @@ export function sceneKey(s: SceneInput): string {
   if (s.mode === 'battle' && s.battle) {
     const b = s.battle
     const pose = monsterPoseAt(b, s.now)
-    parts.push(b.tier, pose, pose === 'poof' ? poofPhase(b, s.now) : 0, barCells(b, barWidth(monsterBox(b.tier))))
+    const t = legacyMonsterTier(b)
+    parts.push(t, pose, pose === 'poof' ? poofPhase(b, s.now) : 0, barCells(b, barWidth(monsterBox(t))))
     for (const p of livePopups(b, s.now)) parts.push(`${p.kind}:${p.text}:${Math.floor((s.now - p.at) / MS.popupRise)}`)
   }
   return parts.join('|')
@@ -155,8 +156,10 @@ const GOLD_FILL = (row: number) => (row < 3 ? 0xfffbe0 : row < 6 ? 0xffe060 : 0x
 const DIM = { color: 0x262636, k: 0.55 }
 
 function drawMonster(g: RgbGrid, b: Battle, now: number): Box {
-  const box = monsterBox(b.tier)
-  const pose = monsterPoseAt(b, now)
+  const tier = legacyMonsterTier(b)
+  const box = monsterBox(tier)
+  const raw = monsterPoseAt(b, now)
+  const pose = raw === 'revive' ? 'hit' : raw   // 3.0 그림에는 되살아나는 그림이 없다
   if (pose === 'poof') {
     const phase = poofPhase(b, now)
     if (phase < 3) {
@@ -165,9 +168,9 @@ function drawMonster(g: RgbGrid, b: Battle, now: number): Box {
     }
     return box
   }
-  const floating = !/[^.]/.test(MONSTER_ART[b.tier].frames.idle0[box.h - 1])   // 유령: 그림자를 옅게
+  const floating = !/[^.]/.test(MONSTER_ART[tier].frames.idle0[box.h - 1])   // 유령: 그림자를 옅게
   shadow(g, box.footLeft - 1, box.footRight + 1, floating ? 0.5 : 1)
-  blit(g, toRgb(monsterFrame(b.tier, pose)), box.x, box.y)
+  blit(g, toRgb(monsterFrame(tier, pose)), box.x, box.y)
   const w = barWidth(box)
   hpBar(g, Math.floor((box.left + box.right + 1) / 2 - (w + 2) / 2), Math.max(1, box.head - 6), w, barCells(b, w))
   return box
