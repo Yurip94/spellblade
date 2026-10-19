@@ -594,7 +594,7 @@ test('토큰 칸과 턴 기록이 저장된다', async ($, on) => {
   expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ in: 320, out: 2_140, cw: 12_400, cr: 410_000, turns: 1, fast: 1, clean: 1 })
   await clock.advance(800) // 마법 적중 0.7초 뒤에 승리
   const t = await bandText($)
-  expect(t).toMatch(/✓ 승리 \+3 XP · 출력 2\.1k/)
+  expect(t).toMatch(/✓ 승리 \+3 XP · 위력 3\.4k/)
   expect(t).not.toMatch(/기억|캐시/)
 })
 
@@ -746,7 +746,7 @@ test('2 를 누르면 의뢰 탭', async ($, on) => {
   expect(await m.find({ text: /🔒/ })).toBeTruthy()
 })
 
-test('3 을 누르면 기록 탭과 W 식', async ($, on) => {
+test('3 을 누르면 기록 탭 — 위력 · 마법 적중률을 게임 말로', async ($, on) => {
   beneath(on, { now: NOON })
   on('turn.step', async function* () {
     return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: { input_tokens: 320, output_tokens: 2_140, cache_read_input_tokens: 410_000, cache_creation_input_tokens: 12_400, model: 'm' } }
@@ -755,9 +755,11 @@ test('3 을 누르면 기록 탭과 W 식', async ($, on) => {
   await oneTurn($)
   const m = await openCard($)
   await m.press({ key: 'tab3' })
-  expect(await m.find({ text: /W = 2,140 \+ 0\.1 × \(320 \+ 12,400\) = 3,412/ })).toBeTruthy()
-  expect(await m.find({ text: /캐시 재사용 97%/ })).toBeTruthy()
+  expect(await m.find({ text: /이번 턴  💥 위력 3,412 → \+3 XP · 🎯 1발 중 1발 적중/ })).toBeTruthy()
+  expect(await m.find({ text: /위력 = 시전 2,140 \+ 0\.1 × \(주문서 320 \+ 외워 둠 12,400\)/ })).toBeTruthy()
+  expect(await m.find({ text: /오늘    💥 위력 3\.4k → \+3 XP · 🎯 마법 적중률 100% \(1발 중 1발\)/ })).toBeTruthy()
   expect(await m.find({ text: /🎒 배낭 용량 10%/ })).toBeTruthy()
+  expect(JSON.stringify(await m.drawn())).not.toMatch(/캐시 재사용|캐시 읽기|캐시 쓰기|출력 /)
 })
 
 test('상태 탭: 장비 · 능력치 · 승급의 길 이름', async ($, on) => {
@@ -959,7 +961,7 @@ test('기록 탭에 이 세션 줄', async ($, on) => {
   await oneTurn($)
   const m = await openCard($)
   await m.press({ key: 'tab3' })
-  expect(await m.find({ text: /이 세션  출력 2k/ })).toBeTruthy()
+  expect(await m.find({ text: /이 세션  💥 위력 2k → \+2 XP · 🎯 1발 중 1발 적중/ })).toBeTruthy()
 })
 
 // ---- 2.0.2: 미룬 작은 것 ----
@@ -1431,3 +1433,22 @@ test('자정에 다시 불러와도 쉬던 마검사는 그대로 쉰다', async
   await clock.advance(10 * 60_000) // 00:01 — 날이 바뀌어 다시 불러온다
   expect(await bandText($)).toMatch(/Zzz/)
 })
+
+test('마법 쏜 수 · 적중 수가 그날 칸에 남는다(서브에이전트는 세지 않음)', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
+  let reuse = 'low'
+  on('turn.step', async function* () {
+    const u = reuse === 'low' ? { input_tokens: 10_000, cache_read_input_tokens: 100 } : { input_tokens: 100, cache_read_input_tokens: 50_000 }
+    return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: { ...usage(0), ...u } }
+  })
+  await start($)
+  await oneTurn($)
+  expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ casts: 1, hits: 0 })
+  reuse = 'high'
+  await oneTurn($)
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1, agentId: 'a' } as any))
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ casts: 2, hits: 1 })
+})
+

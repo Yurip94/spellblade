@@ -7,10 +7,13 @@ import { TITLES, type TitleId } from './progression.ts'
 import type { Quest } from './quests.ts'
 import { rgbToRaster, rgbToSvg, toRgb, type RgbGrid } from './rgb.ts'
 import { nameTagSvg } from './scene.ts'
-import { cacheReuse, comma, formulaLine, shortNum } from './tokens.ts'
+import { comma, formulaLine, hitRate, shortNum } from './tokens.ts'
 
 export type { LogEntry }
 export { comma }
+
+// 전투 기록 한 묶음: 토큰(시전 · 주문서 · 외워 둠 · 다시 꺼내 씀), 쏜 마법 · 적중, 위력(W), XP
+type Battle = { in: number; out: number; cw: number; cr: number; casts: number; hits: number; w: number; xp: number }
 
 // 화면이 그리는 데 필요한 것 전부
 export type CardView = {
@@ -31,8 +34,8 @@ export type CardView = {
   combo: number
   bestCombo: number
   banner: string | null
-  turn: { in: number; out: number; cw: number; cr: number; xp: number } | null
-  session: { in: number; out: number; cw: number; cr: number; xp: number } | null
+  turn: Battle | null // 이번 턴 기록
+  session: Battle | null // 이 세션 기록
   today: Sum
   equipment: ReturnType<typeof equipmentAt>
   stats: { str: number; int: number; agi: number; luk: number }
@@ -244,20 +247,23 @@ function questTab(el: Els, v: CardView): unknown[] {
   ]
 }
 
+// 쏜 마법: 「🎯 4발 중 4발 적중」
+const shots = (s: { casts: number; hits: number }) => (s.casts > 0 ? `🎯 ${s.casts}발 중 ${s.hits}발 적중` : '🎯 아직 쏜 마법이 없어요')
+
 function recordTab(el: Els, v: CardView): unknown[] {
   const t = v.turn
   const turnRows = t
     ? [
-        text(el, `  이번 턴  출력 ${comma(t.out)} · 입력 ${comma(t.in)} · 캐시 쓰기 ${comma(t.cw)} · 캐시 읽기 ${comma(t.cr)}`),
-        text(el, `           ${formulaLine(t)}  →  +${comma(t.xp)} XP`, { dimColor: true }),
+        text(el, `  이번 턴  💥 위력 ${comma(t.w)} → +${comma(t.xp)} XP · ${shots(t)}`),
+        text(el, `           ${formulaLine(t)}`, { dimColor: true }),
       ]
     : [text(el, '  이번 턴 기록이 아직 없어요', { dimColor: true }), text(el, ' ')]
   const se = v.session
   const sessionRow = se
-    ? text(el, `  이 세션  출력 ${shortNum(se.out)} · 입력 ${shortNum(se.in)} · 캐시 쓰기 ${shortNum(se.cw)} · 캐시 읽기 ${shortNum(se.cr)}  →  +${comma(se.xp)} XP`)
+    ? text(el, `  이 세션  💥 위력 ${shortNum(se.w)} → +${comma(se.xp)} XP · ${shots(se)}`)
     : text(el, '  이 세션  아직 기록이 없어요', { dimColor: true })
   const d = v.today
-  const reuse = cacheReuse(d)
+  const rate = hitRate(d)
   const backpack = backpackLine(v)
   const journal = v.log.length
     ? v.log.slice(0, 8).map(l => {
@@ -270,7 +276,7 @@ function recordTab(el: Els, v: CardView): unknown[] {
     section(el, '전투 기록', [
       ...turnRows,
       sessionRow,
-      text(el, `  오늘    출력 ${shortNum(d.out)} · 캐시 읽기 ${shortNum(d.cr)}${reuse !== null ? ` · 캐시 재사용 ${reuse}%` : ''}  →  +${comma(v.todayXp)} XP`),
+      text(el, `  오늘    💥 위력 ${shortNum(d.w)} → +${comma(v.todayXp)} XP · 🎯 마법 적중률 ${rate !== null ? `${rate}% (${d.casts}발 중 ${d.hits}발)` : '—'}`),
       ...(backpack ? [text(el, `  ${backpack}`)] : []),
     ]),
     section(el, '모험 일지', journal),

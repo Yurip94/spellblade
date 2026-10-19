@@ -37,7 +37,8 @@ let cleanRun = 0 // 반격 없이 이어진 턴
 let runDay = '' // combo · cleanRun 이 쌓이는 날 — 날이 바뀌면 새로 센다
 let pastDays = new Map<string, Sum>() // 오늘이 아닌 날마다의 합계(모든 세션)
 let turnHadError = false
-let turnTokens = { in: 0, out: 0, cw: 0, cr: 0 }
+const NO_TOKENS = { in: 0, out: 0, cw: 0, cr: 0, casts: 0, hits: 0 } // 토큰 · 쏜 마법 · 적중
+let turnTokens = NO_TOKENS
 let limits: { hp: Gauge | null; mp: Gauge | null } = { hp: null, mp: null }
 let contextPercent: number | null = null
 let pastQuestXp = 0 // 오늘이 아닌 날들의 의뢰 보상
@@ -59,7 +60,7 @@ let mainTurnSeq = 0 // 메인 턴이 끝날 때마다 1씩 — 끝난 턴의 도
 let levelSeen = 0 // 이 창이 이미 본 레벨 — 레벨업 알림을 한 번만 내려고 먼저 차지한다
 let questsFrom = '' // 이 날부터 의뢰 보상을 센다(2.0 을 처음 켠 날 — 지난날 소급 없음)
 let sessionW = 0
-let sessionTokens = { in: 0, out: 0, cw: 0, cr: 0 }
+let sessionTokens = NO_TOKENS
 // 레벨업 · 의뢰 · 칭호 알림을 한 줄로 세운다(도구를 동시에 불러도 토스트 · 일지가 겹치지 않게)
 let announceChain: Promise<void> = Promise.resolve()
 
@@ -237,8 +238,8 @@ function snapshot(): CardView {
     combo: runDay === today ? combo : 0, // 자정을 넘긴 뒤 아직 부른 도구가 없으면 어제 콤보를 보이지 않는다
     bestCombo: t.combo,
     banner: bannerNow(),
-    turn: activity.working ? { ...turnTokens, xp: Math.floor(turnW / 1000) } : lastTurn,
-    session: sessionW > 0 ? { ...sessionTokens, xp: Math.floor(sessionW / 1000) } : null,
+    turn: activity.working ? { ...turnTokens, w: turnW, xp: Math.floor(turnW / 1000) } : lastTurn,
+    session: sessionW > 0 ? { ...sessionTokens, w: sessionW, xp: Math.floor(sessionW / 1000) } : null,
     today: t,
     equipment: equipmentAt(progress.level),
     stats: statsOf(life),
@@ -305,7 +306,7 @@ async function loadNow($: EngineInterface): Promise<void> {
     lastTurn = null
     contextPercent = null // 새 대화의 배낭 용량은 다음 measure 가 알려 준다
     sessionW = 0
-    sessionTokens = { in: 0, out: 0, cw: 0, cr: 0 }
+    sessionTokens = NO_TOKENS
     pendingHits = []
     battle = null // 아래에서 지금 장비 단계의 몬스터로 새로
   }
@@ -466,8 +467,9 @@ async function addUsage($: EngineInterface, w: number, u: { input_tokens: number
   e.out = (e.out ?? 0) + u.output_tokens
   e.cw = (e.cw ?? 0) + u.cache_creation_input_tokens
   e.cr = (e.cr ?? 0) + u.cache_read_input_tokens
-  turnTokens = { in: turnTokens.in + u.input_tokens, out: turnTokens.out + u.output_tokens, cw: turnTokens.cw + u.cache_creation_input_tokens, cr: turnTokens.cr + u.cache_read_input_tokens }
-  sessionTokens = { in: sessionTokens.in + u.input_tokens, out: sessionTokens.out + u.output_tokens, cw: sessionTokens.cw + u.cache_creation_input_tokens, cr: sessionTokens.cr + u.cache_read_input_tokens }
+  const add = (t: typeof turnTokens) => ({ ...t, in: t.in + u.input_tokens, out: t.out + u.output_tokens, cw: t.cw + u.cache_creation_input_tokens, cr: t.cr + u.cache_read_input_tokens })
+  turnTokens = add(turnTokens)
+  sessionTokens = add(sessionTokens)
   sessionW += w
   dirty.add(day)
   clockNow = now
@@ -577,11 +579,23 @@ function applyBonus(command: string, day: string): string {
   return message
 }
 
-// "+3 XP · 출력 2.1k"
+// "+3 XP · 위력 3.4k"
 function victorySummary(): string {
   const parts = [`+${Math.floor(turnW / 1000)} XP`]
-  if (turnTokens.out > 0) parts.push(`출력 ${shortNum(turnTokens.out)}`)
+  if (turnW > 0) parts.push(`위력 ${shortNum(turnW)}`)
   return parts.join(' · ')
+}
+
+// 메인 대화 단계마다 마법 한 발: 그날 칸 · 이번 턴 · 이 세션에 쏜 수와 적중 수를 센다(기록 탭의 🎯 마법 적중률)
+function countShot(hit: boolean): void {
+  const day = dayKey(clockNow, tz)
+  const entry = mineOn(day)
+  entry.casts = (entry.casts ?? 0) + 1
+  entry.hits = (entry.hits ?? 0) + (hit ? 1 : 0)
+  dirty.add(day)
+  const add = (t: typeof turnTokens) => ({ ...t, casts: t.casts + 1, hits: t.hits + (hit ? 1 : 0) })
+  turnTokens = add(turnTokens)
+  sessionTokens = add(sessionTokens)
 }
 
 // ---- 명령 ----
@@ -636,7 +650,7 @@ async function reset($: EngineInterface): Promise<string> {
   cleanRun = 0
   lastTurn = null
   sessionW = 0
-  sessionTokens = { in: 0, out: 0, cw: 0, cr: 0 }
+  sessionTokens = NO_TOKENS
   levelSeen = 0
   questsNotified = new Set()
   knownTitles = new Set()
@@ -717,7 +731,7 @@ export const register: Register = (on, options) => {
     // 서브에이전트 시작은 메인 턴 상태를 건드리지 않는다
     if (e.agentId) return next(e)
     turnW = 0
-    turnTokens = { in: 0, out: 0, cw: 0, cr: 0 }
+    turnTokens = NO_TOKENS
     turnHadError = false
     clockNow = await $.clock.now()
     activity = { ...activity, working: true, lastActiveAt: clockNow }
@@ -737,7 +751,9 @@ export const register: Register = (on, options) => {
       // 서브에이전트 단계는 XP 만(새 서브에이전트의 첫 단계는 캐시가 비어 실패가 연달아 뜨기 쉽다)
       if (!e.agentId) {
         const reuse = cacheReuse({ in: usage.input_tokens, cw: usage.cache_creation_input_tokens, cr: usage.cache_read_input_tokens })
-        if (reuse !== null && reuse < CAST_FAIL_BELOW) activity = withFlash(activity, 'castFail', clockNow)
+        const hit = !(reuse !== null && reuse < CAST_FAIL_BELOW)
+        countShot(hit)
+        if (!hit) activity = withFlash(activity, 'castFail', clockNow)
         else {
           activity = withFlash(activity, 'castHit', clockNow)
           if (battle) battle = strike(battle, castDamage(w), clockNow)
@@ -775,7 +791,7 @@ export const register: Register = (on, options) => {
         // 마지막 단계의 적중 · 실패 0.7초가 끝난 뒤에 승리(덮지 않게 이어 붙인다)
         activity = thenFlash(activity, 'victory', clockNow, victorySummary())
       }
-      lastTurn = { ...turnTokens, xp: Math.floor(turnW / 1000) }
+      lastTurn = { ...turnTokens, w: turnW, xp: Math.floor(turnW / 1000) }
       await afterGain($)
     }
     await flushQuietly($)

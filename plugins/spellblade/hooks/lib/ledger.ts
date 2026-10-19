@@ -4,7 +4,8 @@ import { xpOf } from './progress.ts'
 // 저장 칸: 세션마다 자기 칸(d:<날짜>:<세션>)에만 쓰고, 읽을 때 합친다
 
 // 1차 칸: w · bonus · swings · updatedAt. 2차에서 더한 칸은 없을 수 있다(없으면 0)
-const ADDED = ['in', 'out', 'cw', 'cr', 'turns', 'fast', 'clean', 'combo', 'commits', 'prs', 'agents', 'skills', 'night'] as const
+// casts · hits: 메인 대화 단계마다 쏜 마법 수 · 적중 수(3.0.2)
+const ADDED = ['in', 'out', 'cw', 'cr', 'turns', 'fast', 'clean', 'combo', 'commits', 'prs', 'agents', 'skills', 'night', 'casts', 'hits'] as const
 type Added = (typeof ADDED)[number]
 
 export type Entry = { w: number; bonus: number; swings: number; updatedAt: number } & Partial<Record<Added, number>>
