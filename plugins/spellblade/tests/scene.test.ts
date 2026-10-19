@@ -82,6 +82,11 @@ test('같은 입력은 같은 열쇠 · 캐시', async () => {
   expect(sceneKey(S({ now: 0 }))).not.toBe(sceneKey(S({ now: 800 })))
 })
 
+test('이모지 이름표 상자는 한글처럼 넓다', async () => {
+  const w = (s: string) => Number(nameTagSvg(s, 2).match(/width="([\d.]+)"/)?.[1])
+  expect(w('🔥🔥🔥')).toBe(w('렌렌렌'))
+})
+
 test('이름표는 글자를 막는다', async () => {
   expect(nameTagSvg('<렌>', 2)).toContain('&lt;렌&gt;')
   expect(nameTagSvg('렌', 2)).toContain('font-size="5.5"')

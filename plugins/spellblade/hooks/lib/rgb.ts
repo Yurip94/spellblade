@@ -92,6 +92,7 @@ export function rgbToRaster(g: RgbGrid, key: string): RasterCells {
 
 const XML: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }
 
+// XML 에 쓸 수 없는 제어 문자 · U+FFFE · U+FFFF 는 빼고(들어가면 SVG 전체가 깨진다) 특수문자는 막는다
 export function escapeXml(s: string): string {
-  return s.replace(/[&<>"']/g, c => XML[c])
+  return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '').replace(/[&<>"']/g, c => XML[c])
 }

@@ -48,6 +48,12 @@ test('XML 특수문자를 막는다', async () => {
   expect(escapeXml('<렌&"\'>')).toBe('&lt;렌&amp;&quot;&apos;&gt;')
 })
 
+// 이름에 제어 문자가 섞이면 XML 이 깨져 데스크톱 장면 전체가 깨진 그림이 된다
+test('XML 에 못 쓰는 글자는 뺀다', async () => {
+  expect(escapeXml('렌\u0001\u0008\u000b\u001f\ufffe\uffff!')).toBe('렌!')
+  expect(escapeXml('a\tb\nc')).toBe('a\tb\nc')
+})
+
 test('blit 은 투명을 건너뛰고 밖은 자른다', async () => {
   const d = blank(2, 1)
   blit(d, [[null, 5, 6]], 0, 0)

@@ -258,7 +258,11 @@ export function sceneGrid(s: SceneInput): RgbGrid {
 // 마검사 발밑 이름표(데스크톱 SVG 에만, viewBox 점 좌표). 글자는 2px 기준 11px 로 장면과 같이 커지고, 테두리는 화면 1px
 export function nameTagSvg(name: string, pixel: number): string {
   const size = 5.5
-  const wide = (c: string) => /[ᄀ-ᇿ　-鿿가-힯＀-￯]/.test(c)
+  // 한글 · 한자 · 전각과 이모지(그림 글자)는 한 칸 폭, 그 밖은 0.6 칸
+  const wide = (c: string) => {
+    const cp = c.codePointAt(0) ?? 0
+    return /[\u1100-\u11ff\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]/.test(c) || cp >= 0x1f000 || (cp >= 0x2600 && cp <= 0x27bf)
+  }
   const textW = [...name].reduce((w, c) => w + (wide(c) ? 1 : 0.6) * size, 0)
   const w = Math.ceil(textW + 4)
   const h = size + 2
