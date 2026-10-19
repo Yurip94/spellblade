@@ -120,6 +120,28 @@ test('시험 페인: 데스크톱에는 Svg', async ($, on) => {
   expect(await m.find({ type: 'Svg' })).toBeTruthy()
 })
 
+// 데스크톱이 SVG 안의 PNG 를 그리는지 눈으로 보는 시험: ① 점 그림(지금 방식) ② PNG href ③ PNG xlink:href
+test('시험 페인: 데스크톱은 점 그림 · PNG 넣은 SVG 둘을 나란히', async ($, on) => {
+  beneath(on)
+  await start($)
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'Pane', requestId: 'spellblade-probe', props: PANE() })
+  const sources = (await m.findAll({ type: 'Svg' })).map(s => String(s.props.source))
+  expect(sources.length).toBe(3)
+  expect(sources[0]).toContain('<path ')
+  expect(sources[1]).toContain('<image href="data:image/png;base64,')
+  expect(sources[2]).toContain('<image xlink:href="data:image/png;base64,')
+  expect(await m.find({ text: /PNG/ })).toBeTruthy()
+})
+
+test('시험 페인: 터미널은 반칸 점 옆에 PNG Image', async ($, on) => {
+  beneath(on)
+  await start($)
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'terminal', component: 'Pane', requestId: 'spellblade-probe', props: PANE() })
+  expect(await m.find({ type: 'Raster' })).toBeTruthy()
+  const image = await m.find({ type: 'Image' })
+  expect(String((image?.props.source as { png?: string } | undefined)?.png ?? '')).toMatch(/^iVBORw0KGgo/)
+})
+
 // ---- M1: 저장 · 불러오기 · 밴드 한 줄 ----
 
 const TZ = new Date().getTimezoneOffset()

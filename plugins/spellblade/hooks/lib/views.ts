@@ -5,6 +5,7 @@ import { ZERO, type LogEntry, type Sum } from './ledger.ts'
 import type { Gauge } from './limits.ts'
 import { equipmentAt, xpForLevel, type Progress } from './progress.ts'
 import { TITLES, type TitleId } from './progression.ts'
+import { pngSvg, rgbToPng } from './png.ts'
 import type { Quest } from './quests.ts'
 import { rgbToRaster, rgbToSvg, toRgb, type RgbGrid } from './rgb.ts'
 import { nameTagSvg } from './scene.ts'
@@ -113,7 +114,7 @@ export function bandLineText(v: CardView): string {
 
 // $.ui.resolve(e) 에서 쓰는 요소만
 type Make = (props: Record<string, unknown>) => unknown
-export type Els = { Box: Make; Text: Make; Button?: Make; Svg?: Make; Raster?: Make }
+export type Els = { Box: Make; Text: Make; Button?: Make; Svg?: Make; Raster?: Make; Image?: Make }
 
 // 데스크톱 장면의 점 하나 크기(px): 밴드 2 · 카드 3 — 상태와 상관없이 고정(320 × 128 · 480 × 192)
 const SCENE_PIXEL = { band: 2, pane: 3 } as const
@@ -344,3 +345,29 @@ export function stageRoad(el: Els, surface: string, level: number): unknown[] {
     return el.Svg!({ source: rgbToSvg(g, 1), alt: open ? s.name : `${s.name} (잠김)`, width: g[0].length, height: g.length })
   })
 }
+
+// /blade probe: 데스크톱이 SVG 안의 PNG 를 그리는지 눈으로 보는 시험 창 — ① 점 그림(지금 방식) ② PNG href ③ PNG xlink:href.
+// 터미널은 ① 반칸 점 ② PNG(Image — 그림을 그리는 터미널에서만 보인다)
+export function probePane(el: Els, surface: string, g: RgbGrid): unknown {
+  const row = (art: unknown, label: string) => el.Box({ flexDirection: 'row', alignItems: 'center', columnGap: 2, children: [art, text(el, label)] })
+  const w = g[0]?.length ?? 0
+  if (surface === 'terminal') {
+    const rows = [row(el.Raster ? el.Raster(rgbToRaster(g, 'probe')) : text(el, ' '), '① 반칸 점')]
+    if (el.Image) rows.push(row(el.Image({ source: { png: rgbToPng(g) }, columns: w, rows: Math.ceil(g.length / 2), alt: 'PNG 시험' }), '② PNG(그림을 그리는 터미널에서만)'))
+    return el.Box({ flexDirection: 'column', rowGap: 1, children: rows })
+  }
+  if (!el.Svg) return text(el, '그림 요소가 없는 화면이에요')
+  const svg = (source: string, alt: string) => el.Svg!({ source, alt, width: w * PROBE_PIXEL, height: g.length * PROBE_PIXEL })
+  return el.Box({
+    flexDirection: 'column',
+    rowGap: 1,
+    children: [
+      text(el, '②·③ 이 ①과 같은 무늬면 PNG 를 그릴 수 있어요(빈칸 · 깨진 그림이면 못 그림)'),
+      row(svg(rgbToSvg(g, PROBE_PIXEL), '점 그림'), '① 점 그림(지금 방식)'),
+      row(svg(pngSvg(g, PROBE_PIXEL, 'href'), 'PNG href'), '② PNG — href'),
+      row(svg(pngSvg(g, PROBE_PIXEL, 'xlink:href'), 'PNG xlink:href'), '③ PNG — xlink:href'),
+    ],
+  })
+}
+
+const PROBE_PIXEL = 4 // 32 × 32 무늬 → 128 × 128

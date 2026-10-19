@@ -10,13 +10,12 @@ import { questReward, questStatus } from './lib/quests.ts'
 import { cacheReuse, shortNum } from './lib/tokens.ts'
 import { cleanUsage, equipmentAt, levelOf, progressOf, stageOf, tierOf, weightOf, xpForLevel } from './lib/progress.ts'
 import { HEIGHT, WIDTH, type Grid } from './lib/sprites.ts'
-import { gridToRaster } from './lib/to-raster.ts'
-import { gridToSvg } from './lib/to-svg.ts'
+import { toRgb } from './lib/rgb.ts'
 import { castDamage, newBattle, retaliate, settle, skillDamage, strike, type Battle } from './lib/battle.ts'
 import { MONSTERS } from './lib/monsters.ts'
 import { sceneGrid, sceneKey, type SceneInput } from './lib/scene.ts'
 import { demoFrame, poseAt, thenFlash, withFlash, type Activity, type Mood } from './lib/status.ts'
-import { bandLineText, bandModeOf, bandPanel, baseView, card, coinArt, sceneArt, spinnerSuffix, stageRoad, type CardView, type Els, type Tab } from './lib/views.ts'
+import { bandLineText, bandModeOf, bandPanel, baseView, card, coinArt, probePane, sceneArt, spinnerSuffix, stageRoad, type CardView, type Els, type Tab } from './lib/views.ts'
 
 // ---- 모듈 상태 (session.start 의 load 가 매번 새로 채운다) ----
 
@@ -889,11 +888,8 @@ export const register: Register = (on, options) => {
       return card(el, art, v, tab, onTab, stageRoad(el, e.surface, v.progress.level), coinArt(el, e.surface)) as any
     }
     if (e.requestId !== PROBE) return next(e)
-    const el: any = $.ui.resolve(e)
-    // 터미널의 resolve 도 Svg 를 내주지만 그려지지 않는다 — 표면으로 고른다
-    if (e.surface === 'terminal' && 'Raster' in el) return el.Raster(gridToRaster(PROBE_GRID, PROBE_PALETTE, 'probe'))
-    if (e.surface !== 'terminal' && 'Svg' in el) return el.Svg({ source: gridToSvg(PROBE_GRID, PROBE_PALETTE, 8), alt: '마검사 시험 무늬' })
-    return el.Text({ children: ['그림 요소가 없는 화면이에요'] })
+    // 터미널의 resolve 도 Svg 를 내주지만 그려지지 않는다 — 표면으로 고른다(probePane)
+    return probePane($.ui.resolve(e) as unknown as Els, e.surface, toRgb({ grid: PROBE_GRID, palette: PROBE_PALETTE })) as any
   })
 
   on('command.run', { command: ['blade', 'spellblade'] }, async ($, e) => {
