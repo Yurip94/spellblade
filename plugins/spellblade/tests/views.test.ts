@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { newBattle } from '../hooks/lib/battle.ts'
 import { progressOf } from '../hooks/lib/progress.ts'
 import { sceneGrid } from '../hooks/lib/scene.ts'
+import { ZERO } from '../hooks/lib/ledger.ts'
 import { bandLineText, bandModeOf, bandPanel, baseView, comma, levelLabel, motionOf, sceneArt, spinnerSuffix, xpBar, type CardView } from '../hooks/lib/views.ts'
 
 test('천 단위 쉼표', async () => {
@@ -93,4 +94,23 @@ test('밴드 글줄 수는 상태와 상관없이 6줄', async () => {
   const banner = { ...view({ xp: 12000, hp: 41, mp: 62 }), banner: '✨ LEVEL UP!  Lv.14 → Lv.15 ✨' }
   const memory = { ...view({ xp: 12000 }), context: 62 }
   expect([plain, gauges, banner, memory].map(lineCount)).toEqual([6, 6, 6, 6])
+})
+
+// 밴드 글줄 텍스트(Text 의 글자만)
+function bandLines(v: CardView): string[] {
+  const panel = bandPanel(fakeEls, { type: 'Raster' }, v) as { children: [unknown, { children: { children: string[] }[] }] }
+  return panel.children[1].children.map(t => t.children.join(''))
+}
+
+test('밴드 첫 줄에 칭호 · 이름 · 단계 · 레벨 · XP 막대(다음 레벨까지는 없음)', async () => {
+  const v = { ...view({ xp: 6000 }), title: '백전노장' }
+  const lines = bandLines(v)
+  expect(lines[0]).toMatch(/^「백전노장」 렌 · 검사 Lv\.11\/60 · XP [▓░]{10} \d+%$/)
+  expect(lines.join('\n')).not.toMatch(/다음 레벨까지/)
+})
+
+test('밴드에 오늘 전체 DPS(모든 토큰) · 골드(달러)', async () => {
+  const today = { ...ZERO, in: 1_200_000, out: 400_000, cw: 2_000_000, cr: 354_000_000, usd: 1_234.5 }
+  const lines = bandLines({ ...view({ xp: 6000 }), today })
+  expect(lines).toContain('⚔️ 전체 DPS 358M · 🪙 1,234.50 골드')
 })

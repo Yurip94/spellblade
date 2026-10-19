@@ -158,19 +158,33 @@ function backpackLine(v: CardView): string | null {
 // 밴드 오른쪽 글은 언제나 6줄 — 줄이 생겼다 사라지며 밴드 높이가 들썩이지 않게 빈 줄로 자리를 지킨다
 export const BAND_LINES = 6
 
+// 골드 = 달러(1 골드 = $1): "1,234.50"
+export function gold(usd: number): string {
+  const [whole, cents] = Math.max(0, usd).toFixed(2).split('.')
+  return `${comma(Number(whole))}.${cents}`
+}
+
+// 오늘 전체 DPS(모든 세션 · 모든 토큰: 시전 · 주문서 · 외워 둠 · 꺼내 쓴 것) · 쓴 골드(세션 비용)
+function dpsLine(v: CardView): string {
+  const d = v.today
+  return `⚔️ 전체 DPS ${shortNum(d.in + d.out + d.cw + d.cr)} · 🪙 ${gold(d.usd)} 골드`
+}
+
 export function bandPanel(el: Els, art: unknown, v: CardView): unknown {
   const p = v.progress
   const done = v.quests.filter(q => q.done).length
   const blank = () => text(el, ' ')
   const gauges = gaugesLine(v)
   const backpack = backpackLine(v)
+  // 첫 줄에 칭호 · 이름 · 단계 · 레벨과 XP 막대(다음 레벨까지 남은 XP 는 카드 상태 탭에만)
+  const xp = p.isMax ? '' : ` · XP ${xpBar(p.ratio, 10)} ${percent(p.ratio)}%`
   const lines: unknown[] = [
-    text(el, `${v.title ? `「${v.title}」 ` : ''}${v.name} · ${p.stage.name} ${levelLabel(p)}`, { bold: true }),
-    text(el, xpLine(p, 13)),
+    text(el, `${v.title ? `「${v.title}」 ` : ''}${v.name} · ${p.stage.name} ${levelLabel(p)}${xp}`, { bold: true }),
     gauges ? text(el, gauges) : blank(),
     // 배너는 상태 줄 자리에 — 줄 수를 늘리지 않는다
     v.banner ? text(el, v.banner, { bold: true, color: 'yellow' }) : text(el, `${p.stage.emoji} ${v.line}`),
     text(el, `오늘 +${comma(v.todayXp)} XP${v.quests.length ? ` · 의뢰 ${done}/${v.quests.length}` : ''}${v.streak ? ` · 🔥 ${v.streak}일` : ''}`),
+    text(el, dpsLine(v)),
     backpack ? text(el, backpack, { dimColor: true }) : blank(),
   ]
   return el.Box({ flexDirection: 'row', columnGap: 2, children: [art, el.Box({ flexDirection: 'column', justifyContent: 'center', children: lines })] })
@@ -277,6 +291,7 @@ function recordTab(el: Els, v: CardView): unknown[] {
       ...turnRows,
       sessionRow,
       text(el, `  오늘    💥 위력 ${shortNum(d.w)} → +${comma(v.todayXp)} XP · 🎯 마법 적중률 ${rate !== null ? `${rate}% (${d.casts}발 중 ${d.hits}발)` : '—'}`),
+      text(el, `           ${dpsLine(v)}`),
       ...(backpack ? [text(el, `  ${backpack}`)] : []),
     ]),
     section(el, '모험 일지', journal),

@@ -57,6 +57,7 @@ let battle: Battle | null = null // 지금 싸우는 몬스터(새 세션이면 
 let pendingHits: number[] = [] // 메인 도구 오류 시각 — Esc 중단인지 가린 뒤(1초 · 다음 호출 · 턴 끝) 반격으로
 let loaded = false // 처음 불러오기가 끝났는지 — 그 전에는 날짜 · 합계가 비어 그리지 못한다
 let mainTurnSeq = 0 // 메인 턴이 끝날 때마다 1씩 — 끝난 턴의 도구가 늦게 낸 오류를 가린다
+let costSeen: number | null = null // 마지막으로 본 이 세션 비용(달러) — 늘어난 만큼만 그날 골드로 더한다
 let levelSeen = 0 // 이 창이 이미 본 레벨 — 레벨업 알림을 한 번만 내려고 먼저 차지한다
 let questsFrom = '' // 이 날부터 의뢰 보상을 센다(2.0 을 처음 켠 날 — 지난날 소급 없음)
 let sessionW = 0
@@ -586,6 +587,24 @@ function victorySummary(): string {
   return parts.join(' · ')
 }
 
+// 세션 비용(/cost 와 같은 누계, 달러)이 늘어난 만큼 그날 칸에 더한다 — 오늘 쓴 🪙 골드.
+// 처음 본 값은 기준으로만(켜기 전 · 이어 받은 대화의 지난 비용은 오늘 몫이 아니다), 줄었으면 장부가 0 부터 다시 센 것
+function addCost(usd: number, now: number): void {
+  if (!Number.isFinite(usd) || usd < 0) return
+  if (costSeen === null) {
+    costSeen = usd
+    return
+  }
+  if (usd < costSeen) costSeen = 0
+  const delta = usd - costSeen
+  costSeen = usd
+  if (delta <= 0) return
+  const day = dayKey(now, tz)
+  const entry = mineOn(day)
+  entry.usd = (entry.usd ?? 0) + delta
+  dirty.add(day)
+}
+
 // 메인 대화 단계마다 마법 한 발: 그날 칸 · 이번 턴 · 이 세션에 쏜 수와 적중 수를 센다(기록 탭의 🎯 마법 적중률)
 function countShot(hit: boolean): void {
   const day = dayKey(clockNow, tz)
@@ -700,6 +719,7 @@ export const register: Register = (on, options) => {
       const u = await $.session.usage()
       limits = limitsOf(u.rateLimits)
       contextPercent = u.context.percent ?? null
+      costSeen = u.cost?.usd ?? null // 켜기 전에 쓴 비용은 기준으로만
     } catch {
       // 한도를 못 읽으면 체력 · 마나를 숨긴다
     }
@@ -712,6 +732,7 @@ export const register: Register = (on, options) => {
   on('session.measure', async ($, e, next) => {
     limits = limitsOf(e.rateLimits)
     contextPercent = e.context.percent ?? null
+    if (e.cost) addCost(e.cost.usd, await $.clock.now())
     $.ui.invalidate('ui.render')
     return next(e)
   })
@@ -719,6 +740,12 @@ export const register: Register = (on, options) => {
   // /clear · /resume · /branch 뒤에는 session.start 가 오지 않는다
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
     await load($)
+    // 이어 받은 대화의 지난 비용이 오늘 골드로 들어가지 않게 기준을 다시 잡는다
+    try {
+      costSeen = (await $.session.usage()).cost?.usd ?? costSeen
+    } catch {
+      // 비용을 못 읽으면 기준은 그대로
+    }
     return next(e)
   }).catch(async ($, e, next) => next(e))
 

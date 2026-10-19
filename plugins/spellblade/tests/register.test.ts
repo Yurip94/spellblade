@@ -15,7 +15,8 @@ type Seen = { commands: string[]; toasts: { text: string; timeoutMs?: number }[]
 // 키트에는 엔진이 없어서 플러그인이 부르는 $ 호출에 테스트가 맨 아래에서 답한다.
 // 테스트의 훅은 모두 첫 $ 호출 전에 걸어야 하므로: beneath → (테스트 훅) → start
 // failMeta: profile · log · q: 같은 알림 칸 저장만 실패시킨다(테스트 중간에 켤 수 있다)
-type BeneathOpts = { now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string; failSet?: boolean; failMeta?: boolean; beforeKeys?: () => Promise<void>; limits?: { kind: string; percentUsed: number; resetsAt?: string }[] }
+// cost: $.session.usage() 가 알려 주는 이 세션 비용(달러, 테스트 중간에 바꿀 수 있다)
+type BeneathOpts = { now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string; failSet?: boolean; failMeta?: boolean; beforeKeys?: () => Promise<void>; limits?: { kind: string; percentUsed: number; resetsAt?: string }[]; cost?: number }
 
 function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen } {
   const clock = mock.clock(on, { now: opts.now ?? Date.UTC(2026, 9, 16, 3, 0) })
@@ -45,7 +46,7 @@ function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen
   on('session.end', async () => ({}))
   // /clear · /resume 흉내: 설정 훅은 아래에 없으니 테스트가 맨 아래에서 답한다
   on('classic.SessionStart', async () => ({}) as any)
-  on('session.usage', async () => ({ value: { startedAt: 0, context: { window: 1_000_000, percent: 10 }, rateLimits: opts.limits ?? [] } }))
+  on('session.usage', async () => ({ value: { startedAt: 0, context: { window: 1_000_000, percent: 10 }, rateLimits: opts.limits ?? [], ...(opts.cost !== undefined ? { cost: { usd: opts.cost } } : {}) } }))
   on('session.measure', async (_$, e) => ({ changed: e.changed }))
   // 맨 아래 그림: 스피너는 단어 + suffix, 밴드는 다른 Mod 대신 opts.bottomBand
   on('ui.render', { component: 'Spinner' }, async ($, e) => {
@@ -330,9 +331,8 @@ test('커밋 성공 +20', async ($, on) => {
   on('tool.call', async () => ({ result: 'ok' }))
   await start($)
   await $.tool.call({ tool: 'Bash', command: 'git add . && git commit -m x' } as any)
-  const text = await bandText($)
-  expect(text).toMatch(/다음 레벨까지 40 XP/)
-  expect(text).toMatch(/전리품 획득! \+20 XP/)
+  expect(await bandText($)).toMatch(/전리품 획득! \+20 XP/)
+  expect(await cardText($)).toMatch(/다음 레벨까지 40 XP/) // 밴드에는 없고 카드 상태 탭에만
 })
 
 test('커밋이 실패하면 보너스 없음', async ($, on) => {
@@ -340,7 +340,7 @@ test('커밋이 실패하면 보너스 없음', async ($, on) => {
   on('tool.call', async () => ({ result: 'nothing to commit', isError: true }))
   await start($)
   await $.tool.call({ tool: 'Bash', command: 'git commit -m x' } as any)
-  expect(await bandText($)).toMatch(/다음 레벨까지 60 XP/)
+  expect(await cardText($)).toMatch(/다음 레벨까지 60 XP/)
 })
 
 test('PR +50 은 하루 300 에서 멈춘다', async ($, on) => {
@@ -349,7 +349,7 @@ test('PR +50 은 하루 300 에서 멈춘다', async ($, on) => {
   await start($)
   await $.tool.call({ tool: 'Bash', command: 'gh pr create --fill' } as any)
   // 280 + 20 = 300 XP → Lv.3, 다음 레벨(540)까지 240
-  expect(await bandText($)).toMatch(/다음 레벨까지 240 XP/)
+  expect(await cardText($)).toMatch(/다음 레벨까지 240 XP/)
 })
 
 test('레벨업 토스트', async ($, on) => {
@@ -616,7 +616,7 @@ test('의뢰를 끝내면 보상 XP 와 토스트', async ($, on) => {
   await start($)
   for (let i = 0; i < 40; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
   expect(seen.toasts.map(t => t.text)).toContain('📜 의뢰 완료! 베기 40번 +30 XP')
-  expect(await bandText($)).toMatch(/다음 레벨까지 30 XP/)
+  expect(await cardText($)).toMatch(/다음 레벨까지 30 XP/)
   expect(seen.store.get(`q:${day}`)).toEqual([0])
 })
 
@@ -629,7 +629,7 @@ test('두 창이 같은 의뢰를 끝내도 보상은 한 번', async ($, on) =>
   await start($)
   await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
   expect(seen.toasts.filter(t => t.text.startsWith('📜'))).toEqual([])
-  expect(await bandText($)).toMatch(/다음 레벨까지 30 XP/)
+  expect(await cardText($)).toMatch(/다음 레벨까지 30 XP/)
 })
 
 test('1차 저장소로 켜도 토스트가 쏟아지지 않는다', async ($, on) => {
@@ -918,7 +918,7 @@ test('2.0 을 처음 켜도 지난날 경험치는 그대로', async ($, on) => 
   const { seen } = beneath(on, { now: NOON, store })
   await start($)
   // 1,000 XP → Lv.5 (960), 다음 레벨(1,500)까지 500
-  expect(await bandText($)).toMatch(/다음 레벨까지 500 XP/)
+  expect(await cardText($)).toMatch(/다음 레벨까지 500 XP/)
   expect(seen.store.get('profile')).toMatchObject({ questsFrom: TODAY, lastLevel: 5 })
 })
 
@@ -928,7 +928,7 @@ test('의뢰 시작일 뒤의 지난날 보상은 센다', async ($, on) => {
   const [y, m, d] = next.split('-').map(Number)
   beneath(on, { now: local(y, m - 1, d, 12, 0), store: { [`d:${day}:x`]: { ...entry(0), swings: 40 }, profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: [], questsFrom: day } } })
   await start($)
-  expect(await bandText($)).toMatch(/다음 레벨까지 30 XP/)
+  expect(await cardText($)).toMatch(/다음 레벨까지 30 XP/)
 })
 
 test('reset 하면 내 세션 몫도 지운다', async ($, on) => {
@@ -1450,5 +1450,52 @@ test('마법 쏜 수 · 적중 수가 그날 칸에 남는다(서브에이전트
   await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1, agentId: 'a' } as any))
   await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
   expect(seen.store.get(`d:${TODAY}:me`)).toMatchObject({ casts: 2, hits: 1 })
+})
+
+
+// ---- 3.0.3: 오늘 전체 DPS · 골드 ----
+
+const measureCost = ($: Engine, usd: number) =>
+  $.session.measure({ context: { window: 1_000_000, percent: 10 }, rateLimits: [], cost: { usd }, changed: ['cost'] } as any)
+
+test('세션 비용이 늘어난 만큼 오늘 골드로 쌓인다(켤 때 이미 있던 비용은 빼고)', async ($, on) => {
+  const opts: BeneathOpts = { now: NOON, cost: 1.5 }
+  const { seen } = beneath(on, opts)
+  await start($)
+  await measureCost($, 2)
+  expect(await bandText($)).toMatch(/🪙 0\.50 골드/)
+  await measureCost($, 2.75)
+  expect(await bandText($)).toMatch(/🪙 1\.25 골드/)
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
+  expect(Math.round(((seen.store.get(`d:${TODAY}:me`) as { usd?: number }).usd ?? 0) * 100)).toBe(125)
+})
+
+test('/resume 로 비용이 뛰어도 그 몫은 오늘 골드가 아니다', async ($, on) => {
+  const opts: BeneathOpts = { now: NOON, cost: 0 }
+  beneath(on, opts)
+  await start($)
+  await measureCost($, 1)
+  opts.cost = 40 // 이어 받은 대화의 지난 비용
+  await $.classic.SessionStart({ source: 'resume' } as any)
+  await measureCost($, 40.5)
+  expect(await bandText($)).toMatch(/🪙 1\.50 골드/)
+})
+
+test('/clear 로 비용 장부가 0 부터 다시 세면 새로 쓴 만큼만 더한다', async ($, on) => {
+  const opts: BeneathOpts = { now: NOON, cost: 3 }
+  beneath(on, opts)
+  await start($)
+  await measureCost($, 4)
+  await measureCost($, 0.25)
+  expect(await bandText($)).toMatch(/🪙 1\.25 골드/)
+})
+
+test('오늘 전체 DPS 는 모든 세션 · 모든 토큰의 합', async ($, on) => {
+  beneath(on, { now: NOON, store: { [`d:${TODAY}:other`]: { ...entry(0), in: 1_000, out: 2_000, cw: 3_000, cr: 994_000 } } })
+  answerUsage(on, { input_tokens: 500_000, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 500_000 })
+  await start($)
+  await oneTurn($)
+  expect(await bandText($)).toMatch(/⚔️ 전체 DPS 2M/)
 })
 

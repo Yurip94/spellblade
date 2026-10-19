@@ -97,3 +97,9 @@ test('마법 쏜 수 · 적중 수도 칸에 넣고 더한다', async () => {
   expect(addSum(a, b)).toMatchObject({ casts: 6, hits: 5 })
   expect(ZERO).toMatchObject({ casts: 0, hits: 0 })
 })
+
+test('쓴 달러(usd)도 칸에 넣고 더한다', async () => {
+  const a = { w: 1, bonus: 0, swings: 0, updatedAt: 1, usd: 1.25 }
+  expect(isEntry(a)).toBe(true)
+  expect(Math.round(addSum(a, { ...a, usd: 0.5 }).usd * 100)).toBe(175)
+})
