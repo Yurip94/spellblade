@@ -246,7 +246,7 @@ function statusTab(el: Els, v: CardView, road?: unknown[]): unknown[] {
       ],
     }),
     section(el, '장비', [
-      text(el, `  무기 ${eq.weapon}${eq.plus ? ` +${eq.plus}` : ''} · 방어구 ${eq.armor} · 장신구 ${eq.trinket}`),
+      text(el, `  무기 ${eq.weapon}${eq.plus ? ` +${eq.plus}` : ''} · 옷 ${eq.armor}`),
       text(el, nextLine, { dimColor: true }),
     ]),
     section(el, '능력치', [

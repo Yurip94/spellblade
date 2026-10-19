@@ -13,7 +13,7 @@ test('천 단위 쉼표', async () => {
 })
 
 test('스피너 문구', async () => {
-  expect(spinnerSuffix(progressOf(12000), 34)).toBe(' · ⚔️ Lv.15 마검사 +34xp')
+  expect(spinnerSuffix(progressOf(12000), 34)).toBe(' · 🪵 Lv.8 수련생 +34xp')
 })
 
 const view = (o: { xp: number; todayXp?: number; name?: string; hp?: number; mp?: number; tokens?: number; gold?: number }): CardView => ({
@@ -31,17 +31,17 @@ test('XP 막대', async () => {
 })
 
 test('밴드 한 줄 v2', async () => {
-  expect(bandLineText(view({ xp: 12000, tokens: 1_240_000, gold: 3.5, hp: 62, mp: 41 }))).toBe('⚔️ 렌 Lv.15 ▓░░░░░░░ 14% · ❤️62 🔷41 · 오늘 +1.2M · 🪙 3.50')
+  expect(bandLineText(view({ xp: 12000, tokens: 1_240_000, gold: 3.5, hp: 62, mp: 41 }))).toBe('🪵 렌 Lv.8 ▓▓░░░░░░ 30% · ❤️62 🔷41 · 오늘 +1.2M · 🪙 3.50')
 })
 
 test('한도가 없으면 한 줄에 체력 · 마나가 없다', async () => {
-  expect(bandLineText(view({ xp: 12000, tokens: 1_240_000 }))).toBe('⚔️ 렌 Lv.15 ▓░░░░░░░ 14% · 오늘 +1.2M · 🪙 0.00')
-  expect(bandLineText(view({ xp: 12000, mp: 41 }))).toBe('⚔️ 렌 Lv.15 ▓░░░░░░░ 14% · 🔷41 · 오늘 +0 · 🪙 0.00')
+  expect(bandLineText(view({ xp: 12000, tokens: 1_240_000 }))).toBe('🪵 렌 Lv.8 ▓▓░░░░░░ 30% · 오늘 +1.2M · 🪙 0.00')
+  expect(bandLineText(view({ xp: 12000, mp: 41 }))).toBe('🪵 렌 Lv.8 ▓▓░░░░░░ 30% · 🔷41 · 오늘 +0 · 🪙 0.00')
 })
 
 test('만렙 표기', async () => {
-  expect(levelLabel(progressOf(208_860 + 12_000))).toBe('만렙 · 명성 ★12')
-  expect(levelLabel(progressOf(12_000))).toBe('Lv.15/60')
+  expect(levelLabel(progressOf(312_280 + 12_000))).toBe('만렙 · 명성 ★12')
+  expect(levelLabel(progressOf(12_000))).toBe('Lv.8/100')
 })
 
 test('band 설정 읽기: 모르는 값은 panel', async () => {
@@ -80,7 +80,7 @@ test('sceneArt: 데스크톱은 장면 Svg(밴드 2px · 카드 3px)와 이름�
 
 test('밴드 한 줄에 몬스터 체력', async () => {
   const v = { ...view({ xp: 12000, hp: 62 }), monster: { name: '슬라임', emoji: '🟢', hp: 150, maxHp: 300 } }
-  expect(bandLineText(v)).toBe('⚔️ 렌 Lv.15 ▓░░░░░░░ 14% · ❤️62 · 🟢 슬라임 ▓▓░ · 오늘 +0 · 🪙 0.00')
+  expect(bandLineText(v)).toBe('🪵 렌 Lv.8 ▓▓░░░░░░ 30% · ❤️62 · 🟢 슬라임 ▓▓░ · 오늘 +0 · 🪙 0.00')
 })
 
 // 밴드 오른쪽 글줄 수
@@ -111,7 +111,7 @@ function bandLines(v: CardView): string[] {
 test('밴드 첫 줄에 칭호 · 이름 · 단계 · 레벨 · XP 막대(다음 레벨까지는 없음)', async () => {
   const v = { ...view({ xp: 6000 }), title: '백전노장' }
   const lines = bandLines(v)
-  expect(lines[0]).toMatch(/^「백전노장」 렌 · 검사 Lv\.11\/60 · XP [▓░]{10} \d+%$/)
+  expect(lines[0]).toMatch(/^「백전노장」 렌 · 수련생 Lv\.5\/100 · XP [▓░]{10} \d+%$/)
   expect(lines.join('\n')).not.toMatch(/다음 레벨까지/)
 })
 

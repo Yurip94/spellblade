@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { dayKey, isEntry, sumEntries } from '../hooks/lib/ledger.ts'
-import { levelOf } from '../hooks/lib/progress.ts'
+import { levelOf, xpForLevel } from '../hooks/lib/progress.ts'
 
 // 스트림을 끝까지 읽고 결과를 돌려준다
 async function run<R>(stream: AsyncGenerator<unknown, R> & { result: Promise<R> }): Promise<R> {
@@ -352,7 +352,7 @@ test('커밋 성공 +20', async ($, on) => {
   await start($)
   await $.tool.call({ tool: 'Bash', command: 'git add . && git commit -m x' } as any)
   expect(await bandText($)).toMatch(/전리품 획득! \+20 XP/)
-  expect(await cardText($)).toMatch(/다음 레벨까지 40 XP/) // 밴드에는 없고 카드 상태 탭에만
+  expect(await cardText($)).toMatch(/다음 레벨까지 980 XP/) // 밴드에는 없고 카드 상태 탭에만
 })
 
 test('커밋이 실패하면 보너스 없음', async ($, on) => {
@@ -360,7 +360,7 @@ test('커밋이 실패하면 보너스 없음', async ($, on) => {
   on('tool.call', async () => ({ result: 'nothing to commit', isError: true }))
   await start($)
   await $.tool.call({ tool: 'Bash', command: 'git commit -m x' } as any)
-  expect(await cardText($)).toMatch(/다음 레벨까지 60 XP/)
+  expect(await cardText($)).toMatch(/다음 레벨까지 1,000 XP/)
 })
 
 test('PR +50 은 하루 300 에서 멈춘다', async ($, on) => {
@@ -368,13 +368,13 @@ test('PR +50 은 하루 300 에서 멈춘다', async ($, on) => {
   on('tool.call', async () => ({ result: 'ok' }))
   await start($)
   await $.tool.call({ tool: 'Bash', command: 'gh pr create --fill' } as any)
-  // 280 + 20 = 300 XP → Lv.3, 다음 레벨(540)까지 240
-  expect(await cardText($)).toMatch(/다음 레벨까지 240 XP/)
+  // 280 + 20 = 300 XP → Lv.1, Lv.2(1,000)까지 700
+  expect(await cardText($)).toMatch(/다음 레벨까지 700 XP/)
 })
 
 test('레벨업 토스트', async ($, on) => {
   const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
-  answerStep(on, 60_000)
+  answerStep(on, 1_000_000)
   await start($)
   await oneTurn($)
   expect(seen.toasts.map(t => t.text)).toContain('⬆ 렌 Lv.2!')
@@ -391,7 +391,7 @@ test('레벨업 토스트는 한 번만', async ($, on) => {
 })
 
 test('승급 토스트', async ($, on) => {
-  const { seen } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(959_000) } })
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(15_587_000) } })
   answerStep(on, 1_000)
   await start($)
   await oneTurn($)
@@ -444,7 +444,7 @@ test('데모는 저장소를 안 바꾼다', async ($, on) => {
   expect(await cardText($)).toMatch(/\(데모\)/)
   await clock.advance(6_000)
   expect(await cardText($)).toMatch(/검사/)
-  await clock.advance(25_000)
+  await clock.advance(45_000)
   expect(await cardText($)).not.toMatch(/\(데모\)/)
   expect(JSON.stringify([...seen.store])).toBe(before)
 })
@@ -546,7 +546,7 @@ test('다시 불러오는 중에 들어온 경험치를 잃지 않는다', async
 
 test('레벨업 때 다른 창이 남긴 일지를 지우지 않는다', async ($, on) => {
   const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
-  answerStep(on, 60_000)
+  answerStep(on, 1_000_000)
   await start($)
   seen.store.set('log', [{ at: 5, level: 7, stage: 'swordsman' }])
   await oneTurn($)
@@ -636,7 +636,7 @@ test('의뢰를 끝내면 보상 XP 와 토스트', async ($, on) => {
   await start($)
   for (let i = 0; i < 40; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
   expect(seen.toasts.map(t => t.text)).toContain('📜 의뢰 완료! 베기 40번 +30 XP')
-  expect(await cardText($)).toMatch(/다음 레벨까지 30 XP/)
+  expect(await cardText($)).toMatch(/다음 레벨까지 970 XP/)
   expect(seen.store.get(`q:${day}`)).toEqual([0])
 })
 
@@ -649,7 +649,7 @@ test('두 창이 같은 의뢰를 끝내도 보상은 한 번', async ($, on) =>
   await start($)
   await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
   expect(seen.toasts.filter(t => t.text.startsWith('📜'))).toEqual([])
-  expect(await cardText($)).toMatch(/다음 레벨까지 30 XP/)
+  expect(await cardText($)).toMatch(/다음 레벨까지 970 XP/)
 })
 
 test('1차 저장소로 켜도 토스트가 쏟아지지 않는다', async ($, on) => {
@@ -704,7 +704,7 @@ test('그림판은 10줄 이상에서만', async ($, on) => {
 
 test('레벨업 배너 3초', async ($, on) => {
   const { clock } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
-  answerStep(on, 60_000)
+  answerStep(on, 1_000_000)
   await start($)
   await oneTurn($)
   expect(await bandText($)).toMatch(/LEVEL UP!  Lv\.1 → Lv\.2/)
@@ -713,7 +713,7 @@ test('레벨업 배너 3초', async ($, on) => {
 })
 
 test('승급하면 배너와 카드 창', async ($, on) => {
-  const { seen } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(959_000), profile: { name: '렌', createdAt: 1, lastLevel: 4, titles: ['first'] } } })
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(15_587_000), profile: { name: '렌', createdAt: 1, lastLevel: 9, titles: ['first'] } } })
   answerStep(on, 1_000)
   await start($)
   await oneTurn($)
@@ -788,7 +788,7 @@ test('상태 탭: 장비 · 능력치 · 승급의 길 이름', async ($, on) =>
   const m = await openCard($, 'terminal')
   expect(await m.find({ text: /나무 검/ })).toBeTruthy()
   expect(await m.find({ text: /💪/ })).toBeTruthy()
-  expect(await m.find({ text: /마검성 \(Lv\.45\)/ })).toBeTruthy()
+  expect(await m.find({ text: /마검성 \(Lv\.65\)/ })).toBeTruthy()
   expect(await m.find({ text: /다음 장비: 철검/ })).toBeTruthy()
 })
 
@@ -911,7 +911,7 @@ test('칭호 토스트 조사(을/를)', async ($, on) => {
 test('의뢰 보상으로 레벨이 오르면 레벨업', async ($, on) => {
   const day = swingDay()
   const [y, m, d] = day.split('-').map(Number)
-  const { seen } = beneath(on, { now: local(y, m - 1, d, 12, 0), store: { [`d:${day}:other`]: { ...entry(50_000), swings: 39 }, profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'], questsFrom: '2000-01-01' } } })
+  const { seen } = beneath(on, { now: local(y, m - 1, d, 12, 0), store: { [`d:${day}:other`]: { ...entry(970_000), swings: 39 }, profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'], questsFrom: '2000-01-01' } } })
   toolMode = 'ok'
   answerTools(on)
   await start($)
@@ -937,8 +937,8 @@ test('2.0 을 처음 켜도 지난날 경험치는 그대로', async ($, on) => 
   for (let i = 1; i <= 5; i++) store[`d:${dayKey(NOON - i * 86_400_000, TZ)}:x`] = { w: 200_000, bonus: 0, swings: 500, updatedAt: 1 }
   const { seen } = beneath(on, { now: NOON, store })
   await start($)
-  // 1,000 XP → Lv.5 (960), 다음 레벨(1,500)까지 500
-  expect(await cardText($)).toMatch(/다음 레벨까지 500 XP/)
+  // 1,000 XP → Lv.2 (1,000), Lv.3(2,378)까지 1,378
+  expect(await cardText($)).toMatch(/다음 레벨까지 1,378 XP/)
   expect(seen.store.get('profile')).toMatchObject({ questsFrom: TODAY, lastLevel: 5 })
 })
 
@@ -948,7 +948,7 @@ test('의뢰 시작일 뒤의 지난날 보상은 센다', async ($, on) => {
   const [y, m, d] = next.split('-').map(Number)
   beneath(on, { now: local(y, m - 1, d, 12, 0), store: { [`d:${day}:x`]: { ...entry(0), swings: 40 }, profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: [], questsFrom: day } } })
   await start($)
-  expect(await cardText($)).toMatch(/다음 레벨까지 30 XP/)
+  expect(await cardText($)).toMatch(/다음 레벨까지 970 XP/)
 })
 
 test('reset 하면 내 세션 몫도 지운다', async ($, on) => {
@@ -957,13 +957,13 @@ test('reset 하면 내 세션 몫도 지운다', async ($, on) => {
   await start($)
   expect(await blade($, 'reset')).toMatch(/처음부터/)
   await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
-  expect(await bandText($)).toMatch(/Lv\.1\/60/)
+  expect(await bandText($)).toMatch(/Lv\.1\/100/)
   expect(((seen.store.get(`d:${TODAY}:me`) ?? { w: 0 }) as { w: number }).w).toBe(0)
   expect(seen.store.get(`q:${TODAY}`) ?? []).toEqual([]) // 지난 의뢰 알림 기록은 지워졌다
 })
 
 test('승급하면 카드 창은 상태 탭으로 열린다', async ($, on) => {
-  beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(959_000), profile: { name: '렌', createdAt: 1, lastLevel: 4, titles: ['first'] } } })
+  beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(15_587_000), profile: { name: '렌', createdAt: 1, lastLevel: 9, titles: ['first'] } } })
   answerStep(on, 1_000)
   await start($)
   const m = await openCard($)
@@ -1320,7 +1320,7 @@ test('그냥 오류는 1초 뒤 반격', async ($, on) => {
 })
 
 test('레벨 5 가 되면 다음 몬스터는 달팽이', async ($, on) => {
-  const { clock } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(959_000) } })
+  const { clock } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(5_656_000) } })
   toolMode = 'ok'
   answerTools(on)
   answerStep(on, 1_000)
@@ -1333,7 +1333,7 @@ test('레벨 5 가 되면 다음 몬스터는 달팽이', async ($, on) => {
 })
 
 test('높은 레벨로 켜면 그 단계 몬스터로 시작한다', async ($, on) => {
-  beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(77_000_000) } })
+  beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(xpForLevel(35) * 1000) } })
   await start($)
   expect(await cardText($)).toMatch(/🗿 골렘 HP 2,250\/2,250/)
 })
@@ -1365,7 +1365,7 @@ test('아무 일 없으면 다시 그리지 않는다', async ($, on) => {
 })
 
 test('reset 하면 몬스터도 처음부터', async ($, on) => {
-  beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(77_000_000) } })
+  beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(xpForLevel(35) * 1000) } })
   answerAsk(on, '처음부터')
   await start($)
   expect(await cardText($)).toMatch(/🗿 골렘/)

@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { cleanUsage, equipmentAt, levelOf, progressOf, stageOf, weightOf, xpForLevel, xpOf } from '../hooks/lib/progress.ts'
+import { cleanUsage, equipmentAt, legacyTierOf, levelOf, progressOf, stageOf, tierOf, weightOf, xpForLevel, xpOf } from '../hooks/lib/progress.ts'
 import { STAGES } from '../hooks/lib/balance.ts'
 
 // 키트에 toBeCloseTo 가 없다
@@ -15,67 +15,37 @@ test('XP 는 W 합을 1,000 으로 나눈 몫 + 보너스', async () => {
   expect(xpOf(2000, 20)).toBe(22)
 })
 
-test('레벨 L 누적 XP 는 60 × (L − 1)²', async () => {
-  expect(xpForLevel(1)).toBe(0)
-  expect(xpForLevel(5)).toBe(960)
-  expect(xpForLevel(45)).toBe(116160)
+// ---- 4차: 레벨 100 · 3개월 곡선 · 승급 7단계 · 장비 20단계 ----
+
+test('새 곡선: round(1000 × (L−1)^1.25)', async () => {
+  expect([1, 2, 3, 8, 11, 100].map(xpForLevel)).toEqual([0, 1000, 2378, 11386, 17783, 312280])
+  expect([0, 999, 1000, 10787, 312279, 312280, 999_999].map(levelOf)).toEqual([1, 1, 2, 7, 99, 100, 100])
 })
 
-test('레벨 경계', async () => {
-  expect(levelOf(0)).toBe(1)
-  expect(levelOf(959)).toBe(4)
-  expect(levelOf(960)).toBe(5)
-  expect(levelOf(11759)).toBe(14)
-  expect(levelOf(11760)).toBe(15)
-  expect(levelOf(50460)).toBe(30)
-  expect(levelOf(116160)).toBe(45)
+test('레벨 경계는 곡선과 맞는다', async () => {
+  for (let l = 1; l < 100; l++) {
+    expect(levelOf(xpForLevel(l + 1) - 1)).toBe(l)
+    expect(levelOf(xpForLevel(l + 1))).toBe(l + 1)
+  }
 })
 
-test('단계 구간', async () => {
-  expect(stageOf(4).name).toBe('수련생')
-  expect(stageOf(5).name).toBe('검사')
-  expect(stageOf(14).name).toBe('검사')
-  expect(stageOf(15).name).toBe('마검사')
-  expect(stageOf(30).name).toBe('마검기사')
-  expect(stageOf(45).name).toBe('마검성')
-  expect(stageOf(99).name).toBe('마검성')
+test('만렙 100 · 명성은 새 곡선 기준', async () => {
+  expect(progressOf(312280 + 2500)).toMatchObject({ level: 100, isMax: true, fame: 2, into: 0, need: 0, ratio: 1 })
+  expect(progressOf(1000)).toMatchObject({ isMax: false, fame: 0, level: 2, into: 0, need: 1378 })
 })
 
-test('단계 정의는 설계서 그대로', async () => {
-  expect(STAGES.map(s => [s.id, s.name, s.minLevel, s.emoji])).toEqual([
-    ['trainee', '수련생', 1, '🪵'],
-    ['swordsman', '검사', 5, '🗡️'],
-    ['spellblade', '마검사', 15, '⚔️'],
-    ['knight', '마검기사', 30, '🛡️'],
-    ['saint', '마검성', 45, '🌟'],
+test('승급 7단계', async () => {
+  expect([1, 9, 10, 25, 45, 65, 85, 99, 100].map(l => stageOf(l).name)).toEqual(['수련생', '수련생', '검사', '마검사', '마검기사', '마검성', '마검제', '마검제', '검신'])
+  expect(STAGES.map(s => [s.id, s.minLevel, s.emoji])).toEqual([
+    ['trainee', 1, '🪵'], ['swordsman', 10, '🗡️'], ['spellblade', 25, '⚔️'], ['knight', 45, '🛡️'], ['saint', 65, '🌟'], ['lord', 85, '👑'], ['god', 100, '✨'],
   ])
 })
 
-test('다음 레벨까지', async () => {
-  expect(progressOf(1000)).toMatchObject({ xp: 1000, level: 5, into: 40, need: 540 })
-  expect(progressOf(1000).stage.name).toBe('검사')
-  expect(near(progressOf(1000).ratio, 40 / 540)).toBe(true)
-})
-
-// ---- 2차: 만렙 · 명성 · 장비 ----
-
-test('만렙은 60', async () => {
-  expect(levelOf(10_000_000)).toBe(60)
-  expect(levelOf(208_859)).toBe(59)
-  expect(levelOf(208_860)).toBe(60)
-})
-
-test('만렙 뒤에는 명성', async () => {
-  expect(progressOf(208_860 + 12_345)).toMatchObject({ level: 60, isMax: true, fame: 12, into: 0, need: 0, ratio: 1 })
-  expect(progressOf(1000)).toMatchObject({ isMax: false, fame: 0 })
-})
-
-test('장비는 12단계', async () => {
-  expect(equipmentAt(1)).toMatchObject({ weapon: '나무 검', armor: '천 옷', trinket: '머리띠', plus: 0, next: { level: 5, weapon: '철검' } })
-  expect(equipmentAt(9)).toMatchObject({ weapon: '철검', armor: '가죽 갑옷', trinket: '둥근 나무 방패', plus: 4, next: { level: 10, weapon: '강철 검' } })
-  expect(equipmentAt(37)).toMatchObject({ weapon: '청뢰검(번개 두름)', plus: 2 })
-  expect(equipmentAt(55)).toMatchObject({ weapon: '천공의 성검', next: null })
-  expect(equipmentAt(60)).toMatchObject({ weapon: '천공의 성검', plus: 5, next: null })
+test('장비 20단계 · 5레벨마다 · 강화 +N', async () => {
+  expect([1, 4, 5, 94, 95, 100].map(tierOf)).toEqual([0, 0, 1, 18, 19, 19])
+  expect(equipmentAt(7)).toMatchObject({ weapon: '철검', armor: '가죽 옷', plus: 2, next: { level: 10, weapon: '강철 검' } })
+  expect(equipmentAt(100)).toMatchObject({ weapon: '천공의 성검', armor: '전설의 갑옷', plus: 5, next: null })
+  expect([1, 50, 100].map(legacyTierOf)).toEqual([0, 5, 11])
 })
 
 test('토큰 수가 숫자가 아니면 0 으로 센다', async () => {

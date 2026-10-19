@@ -1,4 +1,4 @@
-import { EQUIPMENT12, FAME_PER_XP, LEVEL_BASE, MAX_LEVEL, STAGES, TIER_LEVELS, TIERS, XP_PER_W, type StageDef } from './balance.ts'
+import { EQUIPMENT20, FAME_PER_XP, LEVEL_K, LEVEL_POW, MAX_LEVEL, STAGES, TIER_LEVELS, TIERS, XP_PER_W, type StageDef } from './balance.ts'
 
 export type Usage = {
   input_tokens: number
@@ -31,12 +31,12 @@ export function xpOf(w: number, bonus: number): number {
 }
 
 export function xpForLevel(level: number): number {
-  return LEVEL_BASE * (level - 1) ** 2
+  return Math.round(LEVEL_K * Math.max(0, level - 1) ** LEVEL_POW)
 }
 
 export function levelOf(xp: number): number {
-  let level = Math.max(1, Math.floor(Math.sqrt(Math.max(0, xp) / LEVEL_BASE)) + 1)
-  // 제곱근 반올림 오차를 경계에서 바로잡는다
+  let level = Math.max(1, Math.floor((Math.max(0, xp) / LEVEL_K) ** (1 / LEVEL_POW)) + 1)
+  // 거듭제곱 반올림 오차를 경계에서 바로잡는다
   while (xpForLevel(level + 1) <= xp) level++
   while (level > 1 && xpForLevel(level) > xp) level--
   return Math.min(level, MAX_LEVEL)
@@ -60,18 +60,23 @@ export function progressOf(xp: number): Progress {
   return { xp, level, stage, into, need, ratio: into / need, isMax: false, fame: 0 }
 }
 
-// 장비 · 몬스터 단계: 5레벨마다 (Lv.1~4 → 0, 55~60 → 11)
+// 장비 단계: 5레벨마다 (Lv.1~4 → 0, 95~100 → 19)
 export function tierOf(level: number): number {
   return Math.max(0, Math.min(TIERS - 1, Math.floor(level / TIER_LEVELS)))
 }
 
+// 3.0 그림(그림 묶음이 없을 때)의 12단계: 레벨 100 을 비율로 나눈다
+export function legacyTierOf(level: number): number {
+  return Math.max(0, Math.min(11, Math.floor(((level - 1) * 12) / 100)))
+}
+
 // 지금 장비와 강화 수치(그 단계 첫 레벨부터 오른 레벨 수), 다음 단계 무기
-export function equipmentAt(level: number): { weapon: string; armor: string; trinket: string; plus: number; next: { level: number; weapon: string } | null } {
+export function equipmentAt(level: number): { weapon: string; armor: string; plus: number; next: { level: number; weapon: string } | null } {
   const tier = tierOf(level)
   const first = tier === 0 ? 1 : tier * TIER_LEVELS
   return {
-    ...EQUIPMENT12[tier],
+    ...EQUIPMENT20[tier],
     plus: level - first,
-    next: tier < TIERS - 1 ? { level: (tier + 1) * TIER_LEVELS, weapon: EQUIPMENT12[tier + 1].weapon } : null,
+    next: tier < TIERS - 1 ? { level: (tier + 1) * TIER_LEVELS, weapon: EQUIPMENT20[tier + 1].weapon } : null,
   }
 }

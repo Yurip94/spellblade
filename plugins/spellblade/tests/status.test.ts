@@ -67,14 +67,14 @@ test('전리품은 승리를 덮고 반격에는 밀린다', async () => {
   expect(poseAt(withFlash(withFlash(A(), 'hit', 0), 'loot', 10, 'L'), 20).pose).toBe('hit')
 })
 
-test('3차 데모는 12단계 × 3장면(0.8초씩, 28.8초면 끝)', async () => {
+test('데모는 20단계 × 3장면(0.8초씩, 48초면 끝)', async () => {
   expect(demoFrame(0)).toMatchObject({ tier: 0, pose: 'slash', mode: 'battle' })
   expect(demoFrame(800)).toMatchObject({ tier: 0, pose: 'castFail', mode: 'battle' })
   expect(demoFrame(1600)).toMatchObject({ tier: 0, pose: 'sit', mode: 'rest' })
   expect(demoFrame(800 * 3)).toMatchObject({ tier: 1, pose: 'slash' })
-  expect(demoFrame(28_799)).toMatchObject({ tier: 11, pose: 'sit' })
+  expect(demoFrame(47_999)).toMatchObject({ tier: 19, pose: 'sit' })
   expect(demoFrame(0)?.line).toMatch(/\(데모\)/)
-  expect(demoFrame(28_800)).toBe(null)
+  expect(demoFrame(48_000)).toBe(null)
   expect(demoFrame(-1)).toBe(null)
 })
 

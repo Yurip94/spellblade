@@ -20,7 +20,7 @@ function fnv(rows: string[]): string {
 }
 
 test('tierOf: 5레벨마다', async () => {
-  expect([1, 4, 5, 9, 10, 54, 55, 60].map(tierOf)).toEqual([0, 0, 1, 1, 2, 10, 11, 11])
+  expect([1, 4, 5, 9, 10, 54, 55, 60, 100].map(tierOf)).toEqual([0, 0, 1, 1, 2, 10, 11, 12, 19])
 })
 
 test('모든 단계 · 자세가 44×48', async () => {
