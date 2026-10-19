@@ -20,7 +20,7 @@ type Seen = { commands: string[]; toasts: { text: string; timeoutMs?: number }[]
 // 테스트의 훅은 모두 첫 $ 호출 전에 걸어야 하므로: beneath → (테스트 훅) → start
 // failMeta: profile · log · q: 같은 알림 칸 저장만 실패시킨다(테스트 중간에 켤 수 있다)
 // pack: 그림 묶음 파일($HOME/Documents/spellblade-packs/spellblade-pack.json) — 없으면 가짜 묶음, 'missing' 은 읽기 실패, 'broken' 은 잘린 JSON
-type BeneathOpts = { pack?: string; now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string; failSet?: boolean; failMeta?: boolean; beforeKeys?: () => Promise<void>; limits?: { kind: string; percentUsed: number; resetsAt?: string }[] }
+type BeneathOpts = { pack?: string; packGate?: Promise<void>; packReached?: () => void; now?: number; store?: Record<string, unknown>; sid?: string; bottomBand?: string; failSet?: boolean; failMeta?: boolean; beforeKeys?: () => Promise<void>; limits?: { kind: string; percentUsed: number; resetsAt?: string }[] }
 
 function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen } {
   const clock = mock.clock(on, { now: opts.now ?? Date.UTC(2026, 9, 16, 3, 0) })
@@ -42,6 +42,8 @@ function beneath(on: On, opts: BeneathOpts = {}): { clock: MockClock; seen: Seen
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
   on('env.get', async (_$, e) => ({ value: e.name === 'HOME' ? '/home/t' : undefined }))
   on('fs.read', async (_$, e) => {
+    opts.packReached?.()
+    if (opts.packGate) await opts.packGate
     if (e.path !== `/home/t/${PACK_FILE}` || opts.pack === 'missing') throw new Error('ENOENT')
     return { value: opts.pack === 'broken' ? '{"version":1,"hero":{"palette":' : opts.pack ?? JSON.stringify(fakePack()) }
   })
@@ -450,7 +452,7 @@ test('데모는 저장소를 안 바꾼다', async ($, on) => {
   const { clock, seen } = beneath(on, { now: NOON, store: { [`d:${TODAY}:y`]: entry(500_000) } })
   await start($)
   const before = JSON.stringify([...seen.store])
-  await blade($, 'demo')
+  expect(await blade($, 'demo')).toBe('13초 동안 맵 다섯 곳과 보스를 차례로 보여 줄게요')
   expect(await cardText($)).toMatch(/\(데모\)/)
   await clock.advance(6_000)
   expect(await cardText($)).toMatch(/검사/)
@@ -1340,13 +1342,13 @@ test('Lv.4 가 되면 다음 몬스터는 슬라임(3레벨마다)', async ($, o
   expect(await cardText($)).toMatch(/🎯 허수아비/)
   for (let i = 0; i < 17; i++) await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
   await clock.advance(1_300)
-  expect(await cardText($)).toMatch(/🟢 슬라임 HP 330\/330/)
+  expect(await cardText($)).toMatch(/🟢 슬라임 HP 318\/318/)
 })
 
 test('높은 레벨로 켜면 그 단계 몬스터로 시작한다', async ($, on) => {
   beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(xpForLevel(35) * 1000), profile: { name: '렌', createdAt: 1, lastLevel: 35, titles: ['first'], curve: 4, boss: 30 } } })
   await start($)
-  expect(await cardText($)).toMatch(/🪰 거대 파리 HP 856\/856/)
+  expect(await cardText($)).toMatch(/🪰 거대 파리 HP 569\/569/)
 })
 
 test('턴이 끝나고 2분 뒤 모닥불', async ($, on) => {
@@ -1593,7 +1595,7 @@ test('Lv.10 이 되면 다음 몬스터는 고블린 왕, 잡으면 profile.boss
   const { clock, seen } = beneath(on, { now: NOON, store: fourth(10) })
   answerUsage(on, BIG_CAST)
   await start($)
-  expect(await cardText($)).toMatch(/👑 고블린 왕 HP 1,597\/1,597/)
+  expect(await cardText($)).toMatch(/👑 고블린 왕 HP 1,429\/1,429/)
   await $.turn.start({ text: 'hi', turnId: 't' })
   await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }))
   await clock.advance(1_300)
@@ -1639,4 +1641,29 @@ test('도구 데미지는 장비 단계 기준', async ($, on) => {
   const hp = monsterHp(monsterIndexOf(50), false)
   const c = (n: number) => n.toLocaleString('en-US')
   expect(await cardText($)).toContain(`HP ${c(hp - skillDamage('eye', 10))}/${c(hp)}`)
+})
+
+test('켜는 동안에는 기본 그림을 먼저 그리지 않는다(묶음을 먼저 읽는다)', async ($, on) => {
+  let release: () => void = () => {}
+  let reached: () => void = () => {}
+  const gate = new Promise<void>(r => { release = r })
+  const read = new Promise<void>(r => { reached = r })
+  beneath(on, { now: NOON, packGate: gate, packReached: () => reached() })
+  const starting = start($, 'desktop')
+  await read
+  const m = await $.ui.mount({ plugin: 'spellblade', surface: 'desktop', component: 'AbovePrompt', props: BAND() })
+  expect(JSON.stringify(await m.drawn())).not.toMatch(/viewBox=\\"0 0 160 64\\"/)
+  await m.unmount()
+  release()
+  await starting
+  expect(await bandSvg($)).toMatch(/viewBox=\\"0 0 80 32\\"/)
+})
+
+test('옛 3.x 창이 lastLevel 을 옛 곡선으로 올려도 4.0 레벨업 알림은 나온다', async ($, on) => {
+  const { seen } = beneath(on, { now: NOON, store: { [`d:${YESTERDAY}:x`]: entry(10_787_000), profile: { name: '렌', createdAt: 1, lastLevel: 14, titles: ['first'], questsFrom: TODAY } } })
+  answerStep(on, 700_000)
+  await start($)
+  seen.store.set('profile', { ...(seen.store.get('profile') as object), lastLevel: 15 }) // 옛 창이 옛 Lv.15 를 적음
+  await oneTurn($)
+  expect(seen.toasts.map(t => t.text)).toContain('⬆ 렌 Lv.8!')
 })

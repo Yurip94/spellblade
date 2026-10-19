@@ -131,7 +131,7 @@ function monsterFrame4(pack: Pack, b: Battle, now: number): { key: string; frame
     else [i, flash] = [0, { color: 0xffffff, k: 0.7 }]
   } else if (pose === 'revive') {
     const r = sprite.anims.revive
-    if (r) [anim, i] = ['revive', Math.min(r.length - 1, Math.floor(((now - (b.reviveUntil - MS.revive)) / MS.revive) * r.length))]
+    if (r) [anim, i] = ['revive', Math.max(0, Math.min(r.length - 1, Math.floor(((now - (b.reviveUntil - MS.revive)) / MS.revive) * r.length)))]
     else [i, flash] = [0, { color: 0xffd040, k: 0.5 }]
   }
   const frames = sprite.anims[anim]
@@ -331,14 +331,16 @@ function drawMonster(pack: Pack, g: RgbGrid, b: Battle, now: number, left: numbe
   return box
 }
 
-// 떠 있는 숫자: 체력 막대 위 가운데, 새것이 아래 · 오래된 것이 7점 위, 0.4초마다 1점씩 오른다
+// 떠 있는 숫자: 체력 막대 위 가운데, 새것이 아래 · 오래된 것이 7점 위, 0.4초마다 1점씩 오른다.
+// 머리가 높아(11행 위) 막대 위에 자리가 없으면 막대 아래에 오래된 것부터 차례로, 오르지 않는다(막대를 가리지 않게)
 function popups(g: RgbGrid, b: Battle, now: number, box: { left: number; right: number; head: number }): void {
   const list = livePopups(b, now)
   const cx = (box.left + box.right + 1) / 2
-  const base = Math.max(1, box.head - 10)
+  const above = box.head >= 11
+  const under = Math.max(0, box.head - 4) + 4
   list.forEach((p, i) => {
     const text = p.text
-    const y = base - Math.floor((now - p.at) / MS.popupRise) - 7 * (list.length - 1 - i)
+    const y = above ? box.head - 10 - Math.floor((now - p.at) / MS.popupRise) - 7 * (list.length - 1 - i) : under + 7 * i
     const x = Math.round(cx - textWidth(text) / 2)
     if (p.kind === 'damage') drawText(g, text, x, y, 0xffe060, 0x6a1408)
     else drawText(g, text, x, y, 0xb4f070, 0x1c4a14)

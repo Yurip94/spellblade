@@ -361,7 +361,8 @@ async function loadNow($: EngineInterface): Promise<void> {
   loaded = true
   // 레벨 100 체계로 옮기는 중이면 옛 lastLevel(옛 곡선의 레벨)은 보지 않는다
   const needCurve = !isProfile(profile) || profile.curve !== CURVE_VERSION
-  levelSeen = needCurve ? levelNow : Math.max(isProfile(profile) ? profile.lastLevel : 0, levelNow)
+  const seen4 = isProfile(profile) && typeof profile.level4 === 'number' ? profile.level4 : 0
+  levelSeen = needCurve ? levelNow : Math.max(seen4, levelNow)
 
   // 처음 켤 때는 이미 이룬 것을 조용히 기록만 한다(지난 레벨 · 칭호 · 의뢰를 한꺼번에 알리지 않으려고)
   const earned = earnedTitles(lifetime())
@@ -377,7 +378,8 @@ async function loadNow($: EngineInterface): Promise<void> {
       titleOrder = [...earned]
     }
     const moving = needCurve && base.curve !== CURVE_VERSION
-    await $.store.set('profile', { ...base, titles, questsFrom, curve: CURVE_VERSION, lastLevel: moving ? levelNow : Math.max(base.lastLevel, levelNow) })
+    const level4 = moving ? levelNow : Math.max((base as { level4?: number }).level4 ?? 0, levelNow)
+    await $.store.set('profile', { ...base, titles, questsFrom, curve: CURVE_VERSION, lastLevel: moving ? levelNow : Math.max(base.lastLevel, levelNow), level4 })
     if (moving && isProfile(latest) && latest.lastLevel !== levelNow) {
       await addLog($, { at: now, level: levelNow, stage: stageOf(levelNow).id, kind: 'note', text: `레벨 100 체계로 바뀜 — Lv.${latest.lastLevel} → Lv.${levelNow}` })
     }
@@ -552,7 +554,7 @@ async function announceLevel($: EngineInterface): Promise<void> {
   const from = levelSeen
   levelSeen = after // 먼저 차지한다(기다리는 사이 같은 레벨업을 또 알리지 않게)
   const stored = await $.store.get('profile')
-  const last = isProfile(stored) ? Math.max(stored.lastLevel, from) : from
+  const last = isProfile(stored) && typeof stored.level4 === 'number' ? Math.max(stored.level4, from) : from
   if (after <= last) return // 다른 창이 이미 알렸다
   activity = withFlash(activity, 'levelup', clockNow)
   $.ui.toast(`⬆ ${name} Lv.${after}!`)
@@ -572,7 +574,7 @@ async function announceLevel($: EngineInterface): Promise<void> {
   await addLog($, { at: clockNow, level: after, stage: stage.id, kind: 'level' })
   const fresh = await $.store.get('profile')
   const base = isProfile(fresh) ? fresh : { name, createdAt: clockNow, lastLevel: last }
-  await $.store.set('profile', { ...base, lastLevel: Math.max(base.lastLevel, after) })
+  await $.store.set('profile', { ...base, lastLevel: Math.max(base.lastLevel, after), level4: Math.max((base as { level4?: number }).level4 ?? 0, after) })
 }
 
 // 일지에 한 줄 더하기(다른 창이 남긴 것을 지우지 않도록 다시 읽고 앞에 붙인다)
@@ -773,8 +775,8 @@ export const register: Register = (on, options) => {
     turnW = 0
     activity = { working: false, lastActiveAt: 0, flash: null, queued: null }
     lastDrawnKey = ''
+    await loadPack($) // 먼저 — 불러오기가 끝난 뒤 기본 그림이 잠깐 비치지 않게
     await load($)
-    await loadPack($)
     try {
       const u = await $.session.usage()
       limits = limitsOf(u.rateLimits)
@@ -981,7 +983,7 @@ export const register: Register = (on, options) => {
       clockNow = await $.clock.now()
       demoStartedAt = clockNow
       $.ui.invalidate('ui.render')
-      return { text: '29초 동안 열두 단계를 차례로 보여 줄게요' }
+      return { text: '13초 동안 맵 다섯 곳과 보스를 차례로 보여 줄게요' }
     }
     if (word === 'reset') return { text: await reset($) }
     if (word === 'probe') {

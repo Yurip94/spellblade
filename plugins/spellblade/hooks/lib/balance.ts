@@ -110,7 +110,7 @@ export const MAP_LEVELS = 20
 export const BOSS_EVERY = 10
 export const BOSS_HP_MULT = 4
 export const MONSTER_HP_BASE = 300
-export const MONSTER_HP_GROWTH = 1.1
+export const MONSTER_HP_GROWTH = 1.06 // 장비 단계 데미지(+25%씩)와 맞춰 어느 레벨이든 베기 10~20번(3.0 싸움 길이)
 export const FINAL_BOSS_EVERY = 10
 
 // 전투: 도구 한 번의 데미지(장비 단계마다 25% 씩 더) · 영창 데미지 = W ÷ 10. 몬스터 체력은 roster.ts monsterHp

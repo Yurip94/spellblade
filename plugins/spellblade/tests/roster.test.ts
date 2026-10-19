@@ -1,5 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { BOSSES, bossAt, bossDue, mapOf, monsterDefOf, monsterHp, monsterIndexOf, ROSTER, spawnFor } from '../hooks/lib/roster.ts'
+import { skillDamage } from '../hooks/lib/battle.ts'
+import { tierOf } from '../hooks/lib/progress.ts'
 
 test('일반 33종 · 보스 10 · 이름은 설계 표', async () => {
   expect(ROSTER.length).toBe(33)
@@ -28,8 +30,15 @@ test('보스: 넘은 문턱 중 가장 높은 것 하나, 잡으면 앞 보스�
   expect(bossAt(40).name).toBe('사이클롭스')
 })
 
-test('체력: 300 × 1.1^단계, 보스 4배', async () => {
-  expect([monsterHp(0, false), monsterHp(10, false), monsterHp(10, true)]).toEqual([300, 778, 3112])
+test('체력: 300 × 1.06^단계, 보스 4배', async () => {
+  expect([monsterHp(0, false), monsterHp(10, false), monsterHp(10, true)]).toEqual([300, 537, 2149])
+})
+
+test('일반 몬스터는 어느 레벨이든 베기 10~20번에 쓰러진다(3.0 싸움 길이)', async () => {
+  for (const level of [1, 10, 25, 50, 75, 99, 100]) {
+    const hits = Math.ceil(monsterHp(monsterIndexOf(level), false) / skillDamage('slash', tierOf(level)))
+    expect([level, hits >= 10 && hits <= 20]).toEqual([level, true])
+  }
 })
 
 test('정예는 앞 몬스터 그림을 색만 바꿔 쓴다', async () => {

@@ -6,7 +6,7 @@ const N = (index: number) => ({ index, boss: 0 })
 
 test('새 몬스터는 단계 체력으로 시작', async () => {
   const b = newBattle(N(3), 120)
-  expect([b.index, b.boss, b.hp, b.maxHp, b.xpAtSpawn, b.popups]).toEqual([3, 0, 399, 399, 120, []])
+  expect([b.index, b.boss, b.hp, b.maxHp, b.xpAtSpawn, b.popups]).toEqual([3, 0, 357, 357, 120, []])
 })
 
 test('strike 는 체력을 줄이고 숫자를 띄운다', async () => {
@@ -35,7 +35,7 @@ test('단계가 바뀌면 다음 몬스터부터', async () => {
   expect([b.index, b.hp]).toEqual([0, 290])
   b = settle(strike(b, 999, 10), 10, N(1), 9)
   b = settle(b, 10 + MS.poof, N(1), 9)
-  expect([b.index, b.hp, b.maxHp]).toEqual([1, 330, 330])
+  expect([b.index, b.hp, b.maxHp]).toEqual([1, 318, 318])
 })
 
 test('숫자는 최대 3개', async () => {
@@ -72,8 +72,8 @@ test('반격 · 맞음 · 숨쉬기 자세', async () => {
 // ---- 4차: 보스 · 부활 ----
 
 test('보스는 체력 4배 · 피닉슬링은 부활 1번', async () => {
-  expect(newBattle(N(3), 0)).toMatchObject({ hp: 399, boss: 0, revives: 0 })
-  expect(newBattle({ index: 26, boss: 80 }, 0)).toMatchObject({ boss: 80, revives: 1, hp: Math.round(300 * 1.1 ** 26 * 4) })
+  expect(newBattle(N(3), 0)).toMatchObject({ hp: 357, boss: 0, revives: 0 })
+  expect(newBattle({ index: 26, boss: 80 }, 0)).toMatchObject({ boss: 80, revives: 1, hp: Math.round(300 * 1.06 ** 26 * 4) })
 })
 
 test('부활: 처음 쓰러지면 절반 체력으로 되살아나고 연기 · XP 없음', async () => {

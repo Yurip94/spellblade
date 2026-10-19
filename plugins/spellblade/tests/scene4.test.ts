@@ -86,3 +86,22 @@ test('장면 SVG 는 엔진 한도 안', async () => {
   }
   expect(nameTag4Svg('<렌>', 4)).toContain('&lt;렌&gt;')
 })
+
+test('키 큰 몬스터에서도 데미지 숫자가 체력 막대를 가리지 않는다', async () => {
+  const TALL = parsePack(JSON.stringify(withBigMonster('slime', 50, 0x2a8a2a, 30)))!
+  const b = newBattle({ index: 1, boss: 0 }, 0)
+  const bar = (g: (number | null)[][]) => g.flat().filter(v => v === 0xff5050 || v === 0x3a1414).length
+  const plain = scene4Grid(TALL, S({ battle: b, now: 1000 }))
+  const shown = scene4Grid(TALL, S({ battle: { ...b, popups: [{ text: '12', at: 1000, kind: 'damage' as const }] }, now: 1000 }))
+  expect(bar(plain)).toBeGreaterThan(0)
+  expect(bar(shown)).toBe(bar(plain))
+  expect(rows(shown, 0xffe060).length).toBeGreaterThan(0)
+})
+
+test('되살아나는 시각보다 시계가 조금 앞서도 그린다(던지지 않음)', async () => {
+  const raw = fakePack()
+  raw.monsters.slime.anims.revive = raw.monsters.slime.anims.idle
+  const R = parsePack(JSON.stringify(raw))!
+  const b = { ...newBattle({ index: 1, boss: 0 }, 0), reviveUntil: 10_000 + 1200 + 3 }
+  expect(scene4Grid(R, S({ battle: b, now: 10_000 })).length).toBe(32)
+})

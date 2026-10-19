@@ -100,8 +100,9 @@ export function allowedBonus(todayBonus: number, amount: number): number {
 
 // ---- 이름 · 모험 일지 ----
 
-// curve: 레벨 곡선 판(4 = 레벨 100 체계, 없으면 옛 곡선) · boss: 잡은 가장 높은 보스 레벨
-export type Profile = { name: string; createdAt: number; lastLevel: number; title?: string; titles?: string[]; questsFrom?: string; curve?: number; boss?: number }
+// curve: 레벨 곡선 판(4 = 레벨 100 체계, 없으면 옛 곡선) · boss: 잡은 가장 높은 보스 레벨 ·
+// level4: 4.0 이 알린 레벨(lastLevel 은 아직 켜 둔 옛 3.x 창이 옛 곡선으로 올릴 수 있어 4.0 은 이것을 본다)
+export type Profile = { name: string; createdAt: number; lastLevel: number; title?: string; titles?: string[]; questsFrom?: string; curve?: number; boss?: number; level4?: number }
 export type LogEntry = { at: number; level: number; stage: StageId; kind?: 'level' | 'quest' | 'title' | 'boss' | 'note'; text?: string }
 
 export function isProfile(v: unknown): v is Profile {
