@@ -13,6 +13,25 @@ test('그림 크기는 격자 × 점 크기', async () => {
   expect(rgbToSvg(blank(160, 64), 2)).toContain('width="320" height="128"')
 })
 
+// 화면이 그림을 소수 배율(예: 1.15배)로 늘리면 칸 사이 틈으로 바탕(흰색)이 비친다(데스크톱 모닥불 장면의 하얀 점).
+// 같은 그림을 반 점 비켜 밑에 한 번 더 깔아 틈에는 옆 칸 색이 보이게 한다 — path 는 색마다 한 번만 쓰고 use 로 두 번 그린다
+test('이음매 가리기: 반 점 비킨 그림을 밑에 깐다', async () => {
+  const s = rgbToSvg([[0xff0000, 0x00ff00]], 4)
+  const id = s.match(/<g id="([^"]+)">/)?.[1] ?? ''
+  expect(id).not.toBe('')
+  const under = s.indexOf(`<use href="#${id}" transform="translate(.5 .5)"/>`)
+  const over = s.indexOf(`<use href="#${id}"/>`)
+  expect(under).toBeGreaterThan(s.indexOf('</defs>'))
+  expect(over).toBeGreaterThan(under)
+  expect(s.match(/<path /g)?.length).toBe(2)
+})
+
+test('이음매 가리기: 그림이 다르면 이름도 다르다', async () => {
+  const id = (s: string) => s.match(/<g id="([^"]+)">/)?.[1]
+  expect(id(rgbToSvg([[1]], 1))).not.toBe(id(rgbToSvg([[2]], 1)))
+  expect(id(rgbToSvg([[1]], 1))).toBe(id(rgbToSvg([[1]], 3)))
+})
+
 test('extra 는 svg 끝에 붙는다', async () => {
   expect(rgbToSvg([[1]], 1, '<text>a</text>')).toMatch(/<text>a<\/text><\/svg>$/)
 })

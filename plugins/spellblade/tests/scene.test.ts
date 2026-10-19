@@ -3,7 +3,7 @@ import { BACKDROPS } from '../hooks/lib/art3.ts'
 import { newBattle, settle, strike } from '../hooks/lib/battle.ts'
 import { heroFrame, type HeroPose } from '../hooks/lib/hero3.ts'
 import { MONSTERS, monsterFrame } from '../hooks/lib/monsters.ts'
-import { toRgb, type RgbGrid } from '../hooks/lib/rgb.ts'
+import { rgbToSvg, toRgb, type RgbGrid } from '../hooks/lib/rgb.ts'
 import { CAST_TIP, GROUND, HERO_X, HERO_Y, MONSTER_X, SCENE_H, SCENE_W, monsterBox, nameTagSvg, sceneGrid, sceneKey, type SceneInput } from '../hooks/lib/scene.ts'
 
 const ALL: HeroPose[] = ['idle', 'blink', 'slash', 'cast1', 'cast2', 'castHit', 'castFail', 'hit', 'victory', 'levelup', 'sit', 'sleep']
@@ -92,4 +92,16 @@ test('마나가 낮으면 영창 빛이 어둡다', async () => {
   const dim = sceneGrid(S({ pose: 'cast1', dimMagic: true }))
   expect(dim[CAST_TIP.y][CAST_TIP.x]).not.toBe(lit[CAST_TIP.y][CAST_TIP.x])
   expect(dim[0][0]).toBe(lit[0][0])
+})
+
+// 엔진의 Svg 한도는 131072자 — 색이 가장 많은 장면(모닥불 빛 · 큰 몬스터 · 빛기둥)과 가장 긴 이름표도 그 안에
+test('장면 SVG 는 엔진 한도 안', async () => {
+  const name = '가'.repeat(12)
+  const worst = [
+    S({ mode: 'rest', pose: 'sit', tier: 11, frame: 0 }),
+    S({ mode: 'rest', pose: 'sleep', tier: 11, frame: 1 }),
+    S({ pose: 'levelup', tier: 11, battle: newBattle(11, 0), frame: 1 }),
+    S({ pose: 'castHit', tier: 11, battle: strike(newBattle(11, 0), 999, 0), now: 10 }),
+  ]
+  for (const x of worst) for (const px of [2, 3]) expect(rgbToSvg(sceneGrid(x), px, nameTagSvg(name, px)).length).toBeLessThan(131_072)
 })

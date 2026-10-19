@@ -36,7 +36,19 @@ export function blit(dst: RgbGrid, src: RgbGrid, ox: number, oy: number, tint?: 
 
 const hex = (rgb: number) => '#' + rgb.toString(16).padStart(6, '0')
 
-// 색마다 path 하나, 가로로 이어진 같은 색은 한 조각. extra(이름표 등)는 viewBox 점 좌표로 </svg> 앞에 붙는다
+// 그림 내용에서 짧은 이름을 만든다(FNV-1a) — 한 화면에 여러 SVG 가 함께 놓여도 use 가 남의 그림을 가리키지 않게
+function nameOf(s: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return 'p' + h.toString(36)
+}
+
+// 색마다 path 하나, 가로로 이어진 같은 색은 한 조각. extra(이름표 등)는 viewBox 점 좌표로 </svg> 앞에 붙는다.
+// 화면이 그림을 소수 배율로 늘리면 칸 사이 틈으로 바탕(흰색)이 비친다 — 같은 그림을 반 점 비켜 밑에 한 번 더 깔아
+// 틈에는 옆 칸 색이 보이게 한다(path 는 한 번만 쓰고 use 로 두 번 그린다)
 export function rgbToSvg(g: RgbGrid, pixel: number, extra = ''): string {
   const h = g.length
   const w = g[0]?.length ?? 0
@@ -56,7 +68,9 @@ export function rgbToSvg(g: RgbGrid, pixel: number, extra = ''): string {
     }
   })
   const paths = [...runs].map(([c, d]) => `<path fill="${hex(c)}" d="${d.join('')}"/>`).join('')
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w * pixel}" height="${h * pixel}" shape-rendering="crispEdges">${paths}${extra}</svg>`
+  const id = nameOf(paths)
+  const layers = `<defs><g id="${id}">${paths}</g></defs><use href="#${id}" transform="translate(.5 .5)"/><use href="#${id}"/>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w * pixel}" height="${h * pixel}" shape-rendering="crispEdges">${layers}${extra}</svg>`
 }
 
 // 위아래 점 두 개를 글자 한 칸에(▀ 글자색 = 위, 배경색 = 아래). 투명은 터미널 기본색
