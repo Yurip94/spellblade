@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { HERO_ANIMS, PACK_FILE, parsePack } from '../hooks/lib/pack.ts'
-import { fakePack, withMonster, withoutHeroAnim } from './fake-pack.ts'
+import { SWORD_FRAME, fakePack, withHeroAnim, withMonster, withoutHeroAnim } from './fake-pack.ts'
 
 test('맞는 묶음을 읽는다', async () => {
   const p = parsePack(JSON.stringify(fakePack()))
@@ -33,4 +33,9 @@ test('색표에 없는 글자 · 이상한 색이면 뺀다', async () => {
   p.monsters.y = { palette: { g: -1 }, anims: { idle: [['g']] } }
   p.monsters.z = { palette: { g: 1 }, anims: { idle: [['g']], hit: [['g', 'gg']] } }
   expect(Object.keys(parsePack(JSON.stringify(p))!.monsters)).toEqual(['slime'])
+})
+
+test('주인공 「ready」(검을 든 서기)는 있으면 읽고, 없어도 된다', async () => {
+  expect(parsePack(JSON.stringify(withHeroAnim('ready', [SWORD_FRAME])))!.hero.anims.ready.length).toBe(1)
+  expect(parsePack(JSON.stringify(fakePack()))!.hero.anims.ready).toBe(undefined)
 })

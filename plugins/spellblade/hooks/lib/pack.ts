@@ -7,7 +7,9 @@ import { CLEAR, type Grid, type Palette } from './sprites.ts'
 export type Sprite = { palette: Palette; anims: Readonly<Record<string, readonly Grid[]>> }
 export type Pack = { version: 1; hero: Sprite; monsters: Readonly<Record<string, Sprite>> }
 
+// slash1~3 의 첫 장은 칼이 가장 크게 그리는 장(장면은 베기 한 번에 그 장을 그린다). ready(검을 든 서기)는 있으면 전투 대기에 쓴다
 export const HERO_ANIMS = ['idle', 'slash1', 'slash2', 'slash3', 'cast', 'hurt', 'jump', 'down'] as const
+export const HERO_EXTRA = ['ready'] as const
 export const MONSTER_ANIMS = ['idle', 'attack', 'hit', 'revive'] as const
 export const PACK_FILE = 'Documents/spellblade-packs/spellblade-pack.json'
 const MAX_SIDE = 128
@@ -55,7 +57,7 @@ export function parsePack(text: string): Pack | null {
   if (typeof raw !== 'object' || raw === null) return null
   const o = raw as { version?: unknown; hero?: unknown; monsters?: unknown }
   if (o.version !== 1) return null
-  const hero = sprite(o.hero, HERO_ANIMS, HERO_ANIMS)
+  const hero = sprite(o.hero, HERO_ANIMS, [...HERO_ANIMS, ...HERO_EXTRA])
   if (!hero) return null
   const monsters: Record<string, Sprite> = {}
   if (typeof o.monsters === 'object' && o.monsters !== null) {

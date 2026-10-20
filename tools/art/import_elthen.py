@@ -17,7 +17,7 @@ import sys
 import zlib
 
 ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-HERO_ANIMS = ('idle', 'slash1', 'slash2', 'slash3', 'cast', 'hurt', 'jump', 'down')
+HERO_ANIMS = ('idle', 'slash1', 'slash2', 'slash3', 'cast', 'hurt', 'jump', 'down')  # + 있으면 ready(hooks/lib/pack.ts HERO_EXTRA)
 CAP = {'idle': 4, 'attack': 3, 'hit': 2, 'revive': 3}   # 몬스터 동작마다 고르게 고를 장 수
 
 
@@ -65,8 +65,11 @@ def write_png(path, pixels, w, h):
 def grid(slug, file, cell, flip, **anims): return {'slug': slug, 'file': file, 'cell': cell, 'flip': flip, 'anims': anims}
 def aseprite(slug, file, flip, **tags): return {'slug': slug, 'file': file, 'json': True, 'flip': flip, 'anims': tags}
 
+# 주인공: 서 있을 때는 칼이 칼집에 있다(0줄). 베기 세 줄은 칼이 가장 크게 그리는 장부터(2줄 3번째 · 3줄 2번째 · 4줄 3번째 칸),
+# ready 는 베기 끝의 칼을 앞으로 든 서기(2줄 7번째 칸 — 0줄 서기에 칼만 더한 그림)
 HERO = grid('pixel-art-adventurer-sprites', 'Adventurer Sprite Sheet v1.5.png', (32, 32), False,
-            idle=(0, 0, 13), slash1=(2, 0, 10), slash2=(3, 0, 10), slash3=(4, 0, 10), jump=(5, 0, 6), hurt=(6, 0, 4), down=(7, 0, 7), cast=(10, 0, 6))
+            idle=(0, 0, 13), slash1=(2, 2, 4), slash2=(3, 1, 4), slash3=(4, 2, 4), jump=(5, 0, 6), hurt=(6, 0, 4), down=(7, 0, 7), cast=(10, 0, 6),
+            ready=(2, 6, 1))
 
 # 몬스터: 시트를 보며 정한 줄(2026-10-19). 두 방향 시트(거미 · 임프 · 사이클롭스 · 미노타우로스)는 왼쪽을 보는 반을 쓴다.
 # 공격 · 맞기 그림이 없는 몬스터는 그 동작을 빼 두면 장면이 코드로 내밀기 · 흰빛을 입힌다

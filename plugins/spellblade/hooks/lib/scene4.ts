@@ -80,8 +80,10 @@ const mixAll = (g: Frame, color: number, k: number): Frame => g.map(r => r.map(v
 function heroAnim(s: Scene4Input): { anim: string; index: (len: number) => number } {
   const loop = (len: number) => Math.floor(s.now / MS.castFrame) % len
   switch (s.pose) {
-    case 'idle': case 'blink': return { anim: 'idle', index: loop }
-    case 'slash': return { anim: `slash${(Math.floor(s.now / MS.slash) % 3) + 1}`, index: len => Math.floor(len / 3) }
+    // 전투 대기는 검을 든 서기(묶음에 ready 가 없으면 idle), 모닥불 앞(sit)은 칼집에 넣은 idle
+    case 'idle': case 'blink': return { anim: 'ready', index: loop }
+    // 베기는 한 번(0.4초)에 한 장 — 칼이 가장 크게 그리는 첫 장
+    case 'slash': return { anim: `slash${(Math.floor(s.now / MS.slash) % 3) + 1}`, index: () => 0 }
     case 'cast1': return { anim: 'cast', index: len => Math.min(1, len - 1) }
     case 'cast2': return { anim: 'cast', index: len => Math.min(2, len - 1) }
     case 'castHit': return { anim: 'cast', index: len => len - 1 }
@@ -220,7 +222,7 @@ export function scene4Key(s: Scene4Input): string {
   const sleeping = s.pose === 'sleep'
   const { anim, index } = heroAnim(s)
   // 그림 수를 모르는 열쇠 단계에서는 시간 조각만 넣는다(같은 시간 조각이면 같은 그림)
-  const heroBeat = anim === 'idle' && s.pose !== 'sit' ? Math.floor(s.now / MS.castFrame) : anim.startsWith('slash') ? Math.floor(s.now / MS.slash) % 3 : 0
+  const heroBeat = (anim === 'idle' || anim === 'ready') && s.pose !== 'sit' ? Math.floor(s.now / MS.castFrame) : anim.startsWith('slash') ? Math.floor(s.now / MS.slash) % 3 : 0
   const parts: (string | number)[] = [s.mode, mapOf(s.level), tierOf(s.level), s.pose, heroBeat, index(1000), s.dimMagic ? 1 : 0]
   if (rest && !sleeping) parts.push('fire', Math.floor(s.now / MS.fireFrame) % 2)
   if (s.pose === 'levelup') parts.push('pillar', Math.floor(s.now / MS.castFrame) % 2)

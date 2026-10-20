@@ -41,3 +41,16 @@ export function withBigMonster(id: string, h: number, color = 0xaa2222, w = 8): 
   p.monsters[id] = { palette: { b: color }, anims: { idle: [Array(h).fill('b'.repeat(w))] } }
   return p
 }
+
+// 칼(시험용 색): 주인공 오른쪽 끝 줄에 세운 칼 — 4 × 6 크기는 다른 동작과 같다
+export const SWORD = 0xd0e0f0
+export const SWORD_FRAME = ['.ssw', '.ssw', 'cccw', '.cc.', '.cc.', 'c..c']
+export const PLAIN_FRAME = ['.ss.', '.ss.', 'cccc', '.cc.', '.cc.', 'c..c']
+
+// 주인공 동작 하나를 바꾼(또는 더한) 묶음 — 색표에 칼 색 w 를 넣는다
+export function withHeroAnim(name: string, frames: string[][]): any {
+  const p = fakePack()
+  p.hero.palette.w = SWORD
+  p.hero.anims[name] = frames
+  return p
+}

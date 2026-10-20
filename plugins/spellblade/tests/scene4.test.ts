@@ -6,7 +6,7 @@ import { LOOKS } from '../hooks/lib/looks.ts'
 import { parsePack } from '../hooks/lib/pack.ts'
 import { rgbToSvg, toRgb } from '../hooks/lib/rgb.ts'
 import { GROUND4, nameTag4Svg, SCENE4_H, SCENE4_W, scene4Grid, scene4Key, type Scene4Input } from '../hooks/lib/scene4.ts'
-import { fakePack, HERO_CLOTH, SLIME, withBigMonster } from './fake-pack.ts'
+import { fakePack, HERO_CLOTH, PLAIN_FRAME, SLIME, SWORD, SWORD_FRAME, withBigMonster, withHeroAnim } from './fake-pack.ts'
 
 const ALL: HeroPose[] = ['idle', 'blink', 'slash', 'cast1', 'cast2', 'castHit', 'castFail', 'hit', 'victory', 'levelup', 'sit', 'sleep']
 const P = parsePack(JSON.stringify(fakePack()))!
@@ -104,4 +104,20 @@ test('되살아나는 시각보다 시계가 조금 앞서도 그린다(던지�
   const R = parsePack(JSON.stringify(raw))!
   const b = { ...newBattle({ index: 1, boss: 0 }, 0), reviveUntil: 10_000 + 1200 + 3 }
   expect(scene4Grid(R, S({ battle: b, now: 10_000 })).length).toBe(32)
+})
+
+test('전투 대기는 검을 든 자세(ready), 모닥불 앞에서는 칼집에 넣은 서기', async () => {
+  const R = parsePack(JSON.stringify(withHeroAnim('ready', [SWORD_FRAME])))!
+  for (const pose of ['idle', 'blink'] as HeroPose[]) expect(cols(scene4Grid(R, S({ pose, now: 400 })), SWORD).length).toBeGreaterThan(0)
+  expect(cols(scene4Grid(R, S({ mode: 'rest', pose: 'sit', battle: null })), SWORD).length).toBe(0)
+  // ready 가 없는 묶음은 예전처럼 idle
+  expect(cols(scene4Grid(P, S({ pose: 'idle' })), HERO_CLOTH).length).toBeGreaterThan(0)
+})
+
+test('베기는 그 베기의 첫 장(칼을 가장 크게 그리는 장)', async () => {
+  const raw = withHeroAnim('slash1', [SWORD_FRAME, PLAIN_FRAME, PLAIN_FRAME])
+  raw.hero.anims.slash2 = [SWORD_FRAME, PLAIN_FRAME, PLAIN_FRAME]
+  raw.hero.anims.slash3 = [SWORD_FRAME, PLAIN_FRAME, PLAIN_FRAME]
+  const R = parsePack(JSON.stringify(raw))!
+  for (const now of [0, 400, 800]) expect(cols(scene4Grid(R, S({ pose: 'slash', now })), SWORD).length).toBeGreaterThan(0)
 })
