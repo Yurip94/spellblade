@@ -35,7 +35,7 @@ test('만렙 100 · 명성은 새 곡선 기준', async () => {
 })
 
 test('승급 7단계', async () => {
-  expect([1, 9, 10, 25, 45, 65, 85, 99, 100].map(l => stageOf(l).name)).toEqual(['수련생', '수련생', '검사', '마검사', '마검기사', '마검성', '마검제', '마검제', '검신'])
+  expect([1, 9, 10, 25, 45, 65, 85, 99, 100].map(l => stageOf(l).name)).toEqual(['수련생', '수련생', '검사', '검객', '검호', '검성', '검제', '검제', '검신'])
   expect(STAGES.map(s => [s.id, s.minLevel, s.emoji])).toEqual([
     ['trainee', 1, '🪵'], ['swordsman', 10, '🗡️'], ['spellblade', 25, '⚔️'], ['knight', 45, '🛡️'], ['saint', 65, '🌟'], ['lord', 85, '👑'], ['god', 100, '✨'],
   ])

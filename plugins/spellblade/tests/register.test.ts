@@ -116,7 +116,7 @@ test('/blade 명령이 등록된다', async ($, on) => {
   expect(seen.commands).toContain('blade')
 })
 
-const PANE = (o = {}) => ({ title: '마검사 시험', isFocused: true, bodyColumns: 60, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 30 }, view: {}, ...o })
+const PANE = (o = {}) => ({ title: '검사 시험', isFocused: true, bodyColumns: 60, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 30 }, view: {}, ...o })
 
 test('시험 페인: 터미널에는 Raster', async ($, on) => {
   beneath(on)
@@ -165,7 +165,7 @@ const YESTERDAY = dayKey(NOON - 86_400_000, TZ)
 const entry = (w: number, bonus = 0, swings = 0) => ({ w, bonus, swings, updatedAt: 1 })
 const BAND = (o = {}) => ({ hasSurvey: false, isWorking: false, maxRows: 12, bodyColumns: 100, scroll: { offset: 0, bodyRows: 12 }, view: {}, ...o })
 
-// 그림판 글(상태 줄 · 체력 · 마나 · 배낭)은 데스크톱 밴드에만 있다 — 터미널 밴드는 한 줄
+// 그림판 글(상태 줄 · 체력 · 기력 · 배낭)은 데스크톱 밴드에만 있다 — 터미널 밴드는 한 줄
 async function bandText($: Engine, surface: 'terminal' | 'desktop' = 'desktop', props = BAND()): Promise<string> {
   const m = await $.ui.mount({ plugin: 'spellblade', surface, component: 'AbovePrompt', props })
   return JSON.stringify(await m.drawn())
@@ -301,7 +301,7 @@ test('데스크톱 카드 장면은 480×192', async ($, on) => {
   expect(svg).toMatch(/"height":192/)
 })
 
-test('일하는 동안 영창 프레임이 바뀐다', async ($, on) => {
+test('일하는 동안 집중 자세를 지킨다', async ($, on) => {
   const { clock } = beneath(on, { now: NOON })
   await start($, 'desktop')
   await $.turn.start({ text: 'hi', turnId: 't' })
@@ -310,7 +310,7 @@ test('일하는 동안 영창 프레임이 바뀐다', async ($, on) => {
   await clock.advance(400)
   const second = JSON.stringify(await m.find({ type: 'Svg' }))
   expect(second).not.toBe(first)
-  expect(await m.find({ text: /마법을 두르는 중/ })).toBeTruthy()
+  expect(await m.find({ text: /집중하는 중/ })).toBeTruthy()
 })
 
 test('턴이 끝나면 승리 문구', async ($, on) => {
@@ -337,7 +337,7 @@ test('도구 한 번에 베기 한 번', async ($, on) => {
   on('tool.call', async () => ({ result: 'ok' }))
   await start($)
   await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
-  expect(await bandText($)).toMatch(/탐색의 눈!/)
+  expect(await bandText($)).toMatch(/간파!/)
   expect(await cardText($)).toMatch(/오늘 베기 1번/)
 })
 
@@ -417,7 +417,7 @@ test('서브에이전트 턴 끝은 승리가 아니다', async ($, on) => {
   await $.turn.complete({ turnId: 'a1', answer: '', durationMs: 1, isAborted: false, reason: 'answer', agentId: 'a' })
   const text = await bandText($)
   expect(text).not.toMatch(/승리/)
-  expect(text).toMatch(/마법을 두르는 중/)
+  expect(text).toMatch(/집중하는 중/)
 })
 
 // ---- M3: /blade name · demo · reset ----
@@ -513,7 +513,7 @@ test('메인 턴이 끝난 뒤 시작한 서브에이전트는 일하는 상태�
   await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
   await $.turn.start({ text: 'bg', turnId: 'a1', agentId: 'a' })
   await clock.advance(3_000) // 승리 문구가 지나간 뒤
-  expect(await bandText($)).not.toMatch(/마법을 두르는 중/)
+  expect(await bandText($)).not.toMatch(/집중하는 중/)
 })
 
 test('저장이 실패해도 0.4초마다 다시 시도하지 않는다', async ($, on) => {
@@ -604,7 +604,7 @@ test('콤보는 오류에서 끊긴다', async ($, on) => {
   toolMode = 'ok'
   await $.tool.call({ tool: 'Read', file_path: '/x' } as any)
   const t = await bandText($)
-  expect(t).toMatch(/탐색의 눈!/)
+  expect(t).toMatch(/간파!/)
   expect(t).not.toMatch(/콤보/)
 })
 
@@ -671,11 +671,11 @@ test('1차 저장소로 켜도 토스트가 쏟아지지 않는다', async ($, o
   expect(seen.store.get('profile')).toMatchObject({ titles: expect.arrayContaining(['first', 'veteran']) })
 })
 
-test('한도를 읽어 마나가 바닥나면 쉰다', async ($, on) => {
+test('한도를 읽어 기력가 바닥나면 쉰다', async ($, on) => {
   beneath(on, { now: NOON })
   await start($)
   await $.session.measure({ context: { window: 1_000_000, percent: 40 }, rateLimits: [{ kind: 'five_hour', percentUsed: 100 }, { kind: 'seven_day', percentUsed: 30 }], changed: ['rateLimits'] } as any)
-  expect(await bandText($)).toMatch(/마나 소진/)
+  expect(await bandText($)).toMatch(/기력 소진/)
 })
 
 test('처음 켤 때 한도를 읽는다', async ($, on) => {
@@ -686,23 +686,23 @@ test('처음 켤 때 한도를 읽는다', async ($, on) => {
 
 // ---- 2차 Task 9: 밴드 v2 · 연출 ----
 
-test('measure 뒤 밴드에 체력(주간) · 마나(5시간)', async ($, on) => {
+test('measure 뒤 밴드에 체력(주간) · 기력(5시간)', async ($, on) => {
   beneath(on, { now: NOON })
   await start($)
   await $.session.measure({ context: { window: 1_000_000, percent: 62 }, rateLimits: [{ kind: 'five_hour', percentUsed: 38 }, { kind: 'seven_day', percentUsed: 59 }], changed: ['rateLimits'] } as any)
   const t = await bandText($)
   expect(t).toMatch(/❤️ [▓░]+ 41%/)
-  expect(t).toMatch(/🔷 [▓░]+ 62%/)
+  expect(t).toMatch(/⚡ [▓░]+ 62%/)
   expect(t).toMatch(/🎒 배낭 용량 62%/)
   expect(t).not.toMatch(/기억|캐시/)
 })
 
-test('한도가 없으면 체력 · 마나 줄을 숨긴다', async ($, on) => {
+test('한도가 없으면 체력 · 기력 줄을 숨긴다', async ($, on) => {
   beneath(on, { now: NOON })
   await start($)
   const t = await bandText($)
   expect(t).not.toMatch(/❤️/)
-  expect(t).not.toMatch(/🔷/)
+  expect(t).not.toMatch(/⚡/)
 })
 
 test('그림판은 10줄 이상에서만', async ($, on) => {
@@ -778,7 +778,7 @@ test('2 를 누르면 의뢰 탭', async ($, on) => {
   expect(await m.find({ text: /🔒/ })).toBeTruthy()
 })
 
-test('3 을 누르면 기록 탭 — 위력 · 마법 적중률을 게임 말로', async ($, on) => {
+test('3 을 누르면 기록 탭 — 위력 · 강타 명중률을 게임 말로', async ($, on) => {
   beneath(on, { now: NOON })
   on('turn.step', async function* () {
     return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: { input_tokens: 320, output_tokens: 2_140, cache_read_input_tokens: 410_000, cache_creation_input_tokens: 12_400, model: 'm' } }
@@ -787,9 +787,9 @@ test('3 을 누르면 기록 탭 — 위력 · 마법 적중률을 게임 말로
   await oneTurn($)
   const m = await openCard($)
   await m.press({ key: 'tab3' })
-  expect(await m.find({ text: /이번 턴  💥 위력 3,412 → \+3 XP · 🎯 1발 중 1발 적중/ })).toBeTruthy()
-  expect(await m.find({ text: /위력 = 시전 2,140 \+ 0\.1 × \(주문서 320 \+ 외워 둠 12,400\)/ })).toBeTruthy()
-  expect(await m.find({ text: /오늘    💥 위력 3\.4k → \+3 XP · 🎯 마법 적중률 100% \(1발 중 1발\)/ })).toBeTruthy()
+  expect(await m.find({ text: /이번 턴  💥 위력 3,412 → \+3 XP · 🎯 1번 중 1번 명중/ })).toBeTruthy()
+  expect(await m.find({ text: /위력 = 휘두름 2,140 \+ 0\.1 × \(살핌 320 \+ 익힘 12,400\)/ })).toBeTruthy()
+  expect(await m.find({ text: /오늘    💥 위력 3\.4k → \+3 XP · 🎯 강타 명중률 100% \(1번 중 1번\)/ })).toBeTruthy()
   expect(await m.find({ text: /🎒 배낭 용량 10%/ })).toBeTruthy()
   expect(JSON.stringify(await m.drawn())).not.toMatch(/캐시 재사용|캐시 읽기|캐시 쓰기|출력 /)
 })
@@ -800,7 +800,7 @@ test('상태 탭: 장비 · 능력치 · 승급의 길 이름', async ($, on) =>
   const m = await openCard($, 'terminal')
   expect(await m.find({ text: /나무 검/ })).toBeTruthy()
   expect(await m.find({ text: /💪/ })).toBeTruthy()
-  expect(await m.find({ text: /마검성 \(Lv\.65\)/ })).toBeTruthy()
+  expect(await m.find({ text: /(^|[^마])검성 \(Lv\.65\)/ })).toBeTruthy()
   expect(await m.find({ text: /다음 장비: 철검/ })).toBeTruthy()
 })
 
@@ -994,7 +994,7 @@ test('기록 탭에 이 세션 줄', async ($, on) => {
   await oneTurn($)
   const m = await openCard($)
   await m.press({ key: 'tab3' })
-  expect(await m.find({ text: /이 세션  💥 위력 2k → \+2 XP · 🎯 1발 중 1발 적중/ })).toBeTruthy()
+  expect(await m.find({ text: /이 세션  💥 위력 2k → \+2 XP · 🎯 1번 중 1번 명중/ })).toBeTruthy()
 })
 
 // ---- 2.0.2: 미룬 작은 것 ----
@@ -1004,11 +1004,11 @@ test('한도 창이 끝나면 다음 measure 전에도 회복한다', async ($, 
   await start($)
   const at = new Date(NOON + 30 * 60_000).toISOString()
   await $.session.measure({ context: { window: 1_000_000, percent: 40 }, rateLimits: [{ kind: 'five_hour', percentUsed: 100, resetsAt: at }, { kind: 'seven_day', percentUsed: 30 }], changed: ['rateLimits'] } as any)
-  expect(await bandText($)).toMatch(/마나 소진 — 30분 뒤 회복/)
+  expect(await bandText($)).toMatch(/기력 소진 — 30분 뒤 회복/)
   await clock.advance(31 * 60_000)
   const t = await bandText($)
-  expect(t).not.toMatch(/마나 소진/)
-  expect(t).toMatch(/🔷 [▓░]+ 100%/)
+  expect(t).not.toMatch(/기력 소진/)
+  expect(t).toMatch(/⚡ [▓░]+ 100%/)
 })
 
 test('토큰 수가 이상해도 그날 칸이 망가지지 않는다', async ($, on) => {
@@ -1270,23 +1270,23 @@ test('몬스터를 잡으면 연기 뒤 같은 단계의 새 몬스터', async (
   expect(await cardText($)).toMatch(/🎯 허수아비 HP 300\/300/)
 })
 
-test('캐시 재사용이 낮으면 캐스팅 실패', async ($, on) => {
+test('캐시 재사용이 낮으면 헛손질', async ($, on) => {
   beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } }) // 첫 칭호 알림이 덮지 않게
   answerUsage(on, { input_tokens: 10_000, cache_read_input_tokens: 100 })
   await start($)
   await $.turn.start({ text: 'hi', turnId: 't' })
   await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }))
-  expect(await bandText($)).toMatch(/주문이 꼬였다/)
+  expect(await bandText($)).toMatch(/헛손질/)
   expect(await cardText($)).toMatch(/HP 300\/300/)
 })
 
-test('캐시 재사용이 높으면 마법 적중', async ($, on) => {
+test('캐시 재사용이 높으면 강타', async ($, on) => {
   beneath(on, { now: NOON })
   answerUsage(on, { output_tokens: 500, input_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 50_000 })
   await start($)
   await $.turn.start({ text: 'hi', turnId: 't' })
   await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }))
-  expect(await bandText($)).toMatch(/마법 적중/)
+  expect(await bandText($)).toMatch(/강타!/)
   expect(await cardText($)).toMatch(/HP 249\/300/)
 })
 
@@ -1297,7 +1297,7 @@ test('서브에이전트 단계는 연출 없이 XP 만', async ($, on) => {
   await start($)
   await $.turn.start({ text: 'hi', turnId: 't' })
   await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1, agentId: 'a' } as any))
-  expect(await bandText($)).not.toMatch(/마법 적중|주문이 꼬였다/)
+  expect(await bandText($)).not.toMatch(/강타|헛손질/)
   expect(await cardText($)).toMatch(/오늘 \+35 XP/)
   expect(await cardText($)).toMatch(/🎯 허수아비 HP 300\/300/)
 })
@@ -1399,12 +1399,12 @@ test('불러오기 전에 그려도 터지지 않는다', async ($, on) => {
   expect(JSON.stringify(await band.drawn())).toMatch(/Lv\.1/)
 })
 
-test('턴 끝 승리는 마지막 단계의 캐스팅 실패 뒤에 이어진다', async ($, on) => {
+test('턴 끝 승리는 마지막 단계의 헛손질 뒤에 이어진다', async ($, on) => {
   const { clock } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
   answerUsage(on, { input_tokens: 10_000, cache_read_input_tokens: 100 })
   await start($)
   await oneTurn($)
-  expect(await bandText($)).toMatch(/주문이 꼬였다/)
+  expect(await bandText($)).toMatch(/헛손질/)
   await clock.advance(800)
   expect(await bandText($)).toMatch(/✓ 승리/)
 })
@@ -1466,7 +1466,7 @@ test('자정에 다시 불러와도 쉬던 마검사는 그대로 쉰다', async
   expect(await bandText($)).toMatch(/Zzz/)
 })
 
-test('마법 쏜 수 · 적중 수가 그날 칸에 남는다(서브에이전트는 세지 않음)', async ($, on) => {
+test('강타 수 · 명중 수가 그날 칸에 남는다(서브에이전트는 세지 않음)', async ($, on) => {
   const { seen } = beneath(on, { now: NOON, store: { profile: { name: '렌', createdAt: 1, lastLevel: 1, titles: ['first'] } } })
   let reuse = 'low'
   on('turn.step', async function* () {
@@ -1666,4 +1666,22 @@ test('옛 3.x 창이 lastLevel 을 옛 곡선으로 올려도 4.0 레벨업 알�
   seen.store.set('profile', { ...(seen.store.get('profile') as object), lastLevel: 15 }) // 옛 창이 옛 Lv.15 를 적음
   await oneTurn($)
   expect(seen.toasts.map(t => t.text)).toContain('⬆ 렌 Lv.8!')
+})
+
+test('검사 컨셉: 밴드 · 카드 어디에도 마법 말이 없다', async ($, on) => {
+  const { clock } = beneath(on, { now: NOON, limits: [{ kind: 'five_hour', percentUsed: 40 }, { kind: 'seven_day', percentUsed: 30 }] })
+  answerUsage(on, { output_tokens: 500, input_tokens: 100, cache_read_input_tokens: 50_000 })
+  await start($, 'desktop')
+  const seen: string[] = []
+  await $.turn.start({ text: 'hi', turnId: 't' })
+  seen.push(await bandText($))
+  await run($.turn.step({ turnId: 't', index: 0, model: 'm', messageCount: 1 }))
+  seen.push(await bandText($))
+  await clock.advance(400)
+  const m = await openCard($)
+  for (const key of ['tab1', 'tab2', 'tab3']) {
+    await m.press({ key })
+    seen.push(JSON.stringify(await m.drawn()))
+  }
+  expect(seen.join(' ')).not.toMatch(/마법|마나|마검|주문|영창|시전|🔷/)
 })

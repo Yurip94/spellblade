@@ -9,10 +9,10 @@ export type StageDef = { id: StageId; name: string; minLevel: number; emoji: str
 export const STAGES: readonly StageDef[] = [
   { id: 'trainee', name: '수련생', minLevel: 1, emoji: '🪵' },
   { id: 'swordsman', name: '검사', minLevel: 10, emoji: '🗡️' },
-  { id: 'spellblade', name: '마검사', minLevel: 25, emoji: '⚔️' },
-  { id: 'knight', name: '마검기사', minLevel: 45, emoji: '🛡️' },
-  { id: 'saint', name: '마검성', minLevel: 65, emoji: '🌟' },
-  { id: 'lord', name: '마검제', minLevel: 85, emoji: '👑' },
+  { id: 'spellblade', name: '검객', minLevel: 25, emoji: '⚔️' },
+  { id: 'knight', name: '검호', minLevel: 45, emoji: '🛡️' },
+  { id: 'saint', name: '검성', minLevel: 65, emoji: '🌟' },
+  { id: 'lord', name: '검제', minLevel: 85, emoji: '👑' },
   { id: 'god', name: '검신', minLevel: 100, emoji: '✨' },
 ]
 
@@ -25,9 +25,9 @@ export const EQUIPMENT20: readonly { weapon: string; armor: string }[] = [
   { weapon: '나무 검', armor: '천 옷' },
   { weapon: '철검', armor: '가죽 옷' },
   { weapon: '강철 검', armor: '징 박은 가죽 옷' },
-  { weapon: '룬 검', armor: '경갑' },
-  { weapon: '푸른 룬 검', armor: '은빛 경갑' },
-  { weapon: '마력 검', armor: '마법 경갑' },
+  { weapon: '장검', armor: '경갑' },
+  { weapon: '청강검', armor: '은빛 경갑' },
+  { weapon: '흑철검', armor: '흑철 경갑' },
   { weapon: '청뢰검', armor: '문양 판금' },
   { weapon: '청뢰검(번개 두름)', armor: '문양 판금 · 어깨 장식' },
   { weapon: '폭풍검', armor: '은빛 판금' },
@@ -39,12 +39,12 @@ export const EQUIPMENT20: readonly { weapon: string; armor: string }[] = [
   { weapon: '흑요검', armor: '흑요 판금' },
   { weapon: '별빛검', armor: '별빛 갑옷' },
   { weapon: '천공검', armor: '천공의 갑옷' },
-  { weapon: '마검 「여명」', armor: '여명의 갑옷' },
-  { weapon: '마검 「황혼」', armor: '황혼의 갑옷' },
+  { weapon: '명검 「여명」', armor: '여명의 갑옷' },
+  { weapon: '명검 「황혼」', armor: '황혼의 갑옷' },
   { weapon: '천공의 성검', armor: '전설의 갑옷' },
 ]
 
-// 경고선(남은 %): 체력 = 주간 한도, 마나 = 5시간 한도
+// 경고선(남은 %): 체력 = 주간 한도, 기력 = 5시간 한도
 export const LIMIT_WARN = { hp: 30, mp: 20 } as const
 
 // 빠른 턴(ms) · 새벽(현지 0~5시)
@@ -93,7 +93,7 @@ export const MS = {
   monsterAttack: 600,  // 반격
   breath: 800,         // 숨쉬기 한 박자
   revive: 1200,        // 보스가 되살아나는 연출
-  castResult: 700,     // 마법 적중 · 캐스팅 실패 연출
+  castResult: 700,     // 강타 · 헛손질 연출
   fireFrame: 800,      // 모닥불이 흔들리는 박자(잠들면 멈춘다)
 } as const
 

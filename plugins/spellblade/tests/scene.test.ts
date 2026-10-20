@@ -114,3 +114,11 @@ test('장면 SVG 는 엔진 한도 안', async () => {
   ]
   for (const x of worst) for (const px of [2, 3]) expect(rgbToSvg(sceneGrid(x), px, nameTagSvg(name, px)).length).toBeLessThan(131_072)
 })
+
+test('헛손질에는 연기가 없다(기본 그림)', async () => {
+  const smoke = [0x4a4a56, 0xa8a8b4, 0xd8d8e0]
+  const g = sceneGrid({ mode: 'battle', tier: 0, pose: 'castFail', frame: 0, battle: newBattle(0, 0), now: 0, dimMagic: false })
+  let n = 0
+  for (let y = CAST_TIP.y - 7; y < CAST_TIP.y + 2; y++) for (let x = CAST_TIP.x - 5; x < CAST_TIP.x + 3; x++) if (smoke.includes(g[y]?.[x] as number)) n++
+  expect(n).toBe(0)
+})

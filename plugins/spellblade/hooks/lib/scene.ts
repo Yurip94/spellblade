@@ -191,7 +191,6 @@ function effects(g: RgbGrid, s: SceneInput, box: Box | null): void {
       if (box) blit(g, fx('bolt'), box.left + 1 - 15, box.mid - 4)   // 탄 머리가 몬스터 몸에 닿는다
       break
     case 'castFail':
-      blit(g, fx('smoke'), tip.x - 5, tip.y - 7)
       blit(g, fx('sweat'), HERO_X + 37, HERO_Y + 15)
       blit(g, fx('sweat'), HERO_X + 5, HERO_Y + 18)
       for (const [dx, dy] of [[9, -6], [8, 5], [-4, -5], [10, 0]]) set(g, tip.x + dx, tip.y + dy, 0xffe060)   // 반동 불꽃

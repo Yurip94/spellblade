@@ -12,10 +12,10 @@ test('캐시 재사용', async () => {
 })
 
 test('위력 식은 게임 말로', async () => {
-  expect(formulaLine({ in: 320, out: 2_140, cw: 12_400 })).toBe('위력 = 시전 2,140 + 0.1 × (주문서 320 + 외워 둠 12,400)')
+  expect(formulaLine({ in: 320, out: 2_140, cw: 12_400 })).toBe('위력 = 휘두름 2,140 + 0.1 × (살핌 320 + 익힘 12,400)')
 })
 
-test('마법 적중률 = 적중 ÷ 쏜 수', async () => {
+test('강타 명중률 = 적중 ÷ 강타 수', async () => {
   expect(hitRate({ casts: 25, hits: 23 })).toBe(92)
   expect(hitRate({ casts: 3, hits: 0 })).toBe(0)
   expect(hitRate({ casts: 0, hits: 0 })).toBe(null)

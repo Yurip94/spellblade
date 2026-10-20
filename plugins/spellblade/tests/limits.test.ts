@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { limitsOf, liveGauge, resetText } from '../hooks/lib/limits.ts'
 
-test('7일 → 체력, 5시간 → 마나', async () => {
+test('7일 → 체력, 5시간 → 기력', async () => {
   const l = limitsOf([{ kind: 'five_hour', percentUsed: 38 }, { kind: 'seven_day', percentUsed: 59 }])
   expect([l.hp?.left, l.mp?.left]).toEqual([41, 62])
 })

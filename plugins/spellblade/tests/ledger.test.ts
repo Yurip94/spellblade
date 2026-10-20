@@ -89,7 +89,7 @@ test('날짜별 합', async () => {
   expect(m.size).toBe(2)
 })
 
-test('마법 쏜 수 · 적중 수도 칸에 넣고 더한다', async () => {
+test('강타 수 · 명중 수도 칸에 넣고 더한다', async () => {
   const a = { w: 1, bonus: 0, swings: 0, updatedAt: 1, casts: 4, hits: 3 }
   const b = { w: 1, bonus: 0, swings: 0, updatedAt: 1, casts: 2, hits: 2 }
   expect(isEntry(a)).toBe(true)

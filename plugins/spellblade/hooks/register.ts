@@ -39,7 +39,7 @@ let cleanRun = 0 // 반격 없이 이어진 턴
 let runDay = '' // combo · cleanRun 이 쌓이는 날 — 날이 바뀌면 새로 센다
 let pastDays = new Map<string, Sum>() // 오늘이 아닌 날마다의 합계(모든 세션)
 let turnHadError = false
-const NO_TOKENS = { in: 0, out: 0, cw: 0, cr: 0, casts: 0, hits: 0 } // 토큰 · 쏜 마법 · 적중
+const NO_TOKENS = { in: 0, out: 0, cw: 0, cr: 0, casts: 0, hits: 0 } // 토큰 · 강타 · 명중
 let turnTokens = NO_TOKENS
 let limits: { hp: Gauge | null; mp: Gauge | null } = { hp: null, mp: null }
 let contextPercent: number | null = null
@@ -94,7 +94,7 @@ function serial(job: () => Promise<void>): Promise<void> {
 }
 
 const PANE = 'spellblade'
-const LOADING = '마검사를 불러오는 중…'
+const LOADING = '검사를 불러오는 중…'
 
 const PROBE = 'spellblade-probe'
 const PROBE_PALETTE = { r: 0xd23c3c, b: 0x3c64d2, y: 0xf0c83c }
@@ -104,7 +104,7 @@ const PROBE_GRID: Grid = Array.from({ length: HEIGHT }, (_, y) =>
 )
 
 const COMMAND = {
-  description: '마검사 카드 열기 (name <이름> · title [칭호] · demo · reset)',
+  description: '검사 카드 열기 (name <이름> · title [칭호] · demo · reset)',
   argumentHint: '[name <이름> | title [칭호] | demo | reset]',
   immediate: true,
 } as const
@@ -200,7 +200,7 @@ function demoNow(): ReturnType<typeof demoFrame> {
   return f
 }
 
-// 마나(5시간 한도)가 경고선 아래면 영창 빛을 어둡게
+// 기력(5시간 한도)이 경고선 아래면 (3.0 그림의) 영창 빛을 어둡게 — 4.1 부터 영창 자세는 쓰지 않는다
 function magicDim(pose: string): boolean {
   const mp = liveLimits().mp
   return (pose === 'cast1' || pose === 'cast2') && mp !== null && mp.left < LIMIT_WARN.mp
@@ -350,7 +350,7 @@ async function loadNow($: EngineInterface): Promise<void> {
   chosenTitle = isProfile(profile) && typeof profile.title === 'string' ? profile.title : null
   lastSyncAt = now
   clockNow = now
-  // 새 세션 · 처음에만 깨어 있게 — 자정에 다시 불러올 때 모닥불 앞에서 쉬거나 자던 마검사를 깨우지 않는다
+  // 새 세션 · 처음에만 깨어 있게 — 자정에 다시 불러올 때 모닥불 앞에서 쉬거나 자던 검사를 깨우지 않는다
   if (fresh) activity = { ...activity, lastActiveAt: now }
   $.ui.invalidate('ui.render')
 
@@ -445,7 +445,7 @@ async function refreshNow($: EngineInterface): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
-// 미뤄 둔 도구 오류를 반격으로: 콤보 · 연속이 끊기고, 마검사는 맞고, 몬스터는 친다.
+// 미뤄 둔 도구 오류를 반격으로: 콤보 · 연속이 끊기고, 검사는 맞고, 몬스터는 친다.
 // due 가 없으면 모두(다음 호출 · 턴 끝이면 Esc 중단이 아니다), 있으면 유예가 지난 것만
 function applyHits(now: number, due?: (at: number) => boolean): void {
   const ready = due ? pendingHits.filter(due) : pendingHits
@@ -566,7 +566,7 @@ async function announceLevel($: EngineInterface): Promise<void> {
     tab = 1 // 새 단계가 보이는 상태 탭으로
     try {
       // 승급은 카드 창을 저절로 연다(터미널은 넓은 창에서만 보인다)
-      await $.ui.open({ id: PANE, title: '마검사', closeOnEscape: true })
+      await $.ui.open({ id: PANE, title: '검사', closeOnEscape: true })
     } catch {
       // 못 열어도 배너 · 토스트는 남는다
     }
@@ -648,7 +648,7 @@ function victorySummary(): string {
   return parts.join(' · ')
 }
 
-// 메인 대화 단계마다 마법 한 발: 그날 칸 · 이번 턴 · 이 세션에 쏜 수와 적중 수를 센다(기록 탭의 🎯 마법 적중률)
+// 메인 대화 단계마다 강타 한 번: 그날 칸 · 이번 턴 · 이 세션에 강타 수와 명중 수를 센다(기록 탭의 🎯 강타 명중률)
 function countShot(hit: boolean): void {
   const day = dayKey(clockNow, tz)
   const entry = mineOn(day)
@@ -782,14 +782,14 @@ export const register: Register = (on, options) => {
       limits = limitsOf(u.rateLimits)
       contextPercent = u.context.percent ?? null
     } catch {
-      // 한도를 못 읽으면 체력 · 마나를 숨긴다
+      // 한도를 못 읽으면 체력 · 기력을 숨긴다
     }
     startTimer($)
     await registerCommand($)
     return out
   })
 
-  // 턴이 끝날 때 · 한도가 1%p 움직일 때: 체력(주간) · 마나(5시간) · 배낭(컨텍스트)
+  // 턴이 끝날 때 · 한도가 1%p 움직일 때: 체력(주간) · 기력(5시간) · 배낭(컨텍스트)
   on('session.measure', async ($, e, next) => {
     limits = limitsOf(e.rateLimits)
     contextPercent = e.context.percent ?? null
@@ -828,7 +828,7 @@ export const register: Register = (on, options) => {
       const w = weightOf(usage)
       turnW += w
       await addUsage($, w, usage, result.usage.model)
-      // 메인 대화의 단계가 끝나면: 캐시 재사용이 낮으면 캐스팅 실패(연출만, 손해 없음), 아니면 마법 적중 — W ÷ 10 데미지.
+      // 메인 대화의 단계가 끝나면: 캐시 재사용이 낮으면 헛손질(연출만, 손해 없음), 아니면 강타 — W ÷ 10 데미지.
       // 서브에이전트 단계는 XP 만(새 서브에이전트의 첫 단계는 캐시가 비어 실패가 연달아 뜨기 쉽다)
       if (!e.agentId) {
         const reuse = cacheReuse({ in: usage.input_tokens, cw: usage.cache_creation_input_tokens, cr: usage.cache_read_input_tokens })
@@ -974,7 +974,7 @@ export const register: Register = (on, options) => {
     const [word] = e.args.trim().split(/\s+/)
     if (!word) {
       tab = 1
-      await $.ui.open({ id: PANE, title: '마검사', focus: true, closeOnEscape: true })
+      await $.ui.open({ id: PANE, title: '검사', focus: true, closeOnEscape: true })
       return {}
     }
     if (word === 'name') return { text: await rename($, e.args.trim().slice(4).trim()) }
@@ -987,9 +987,9 @@ export const register: Register = (on, options) => {
     }
     if (word === 'reset') return { text: await reset($) }
     if (word === 'probe') {
-      await $.ui.open({ id: PROBE, title: '마검사 시험', focus: true, closeOnEscape: true })
+      await $.ui.open({ id: PROBE, title: '검사 시험', focus: true, closeOnEscape: true })
       return { text: await probeText($) }
     }
     return { text: '쓸 수 있는 명령: /blade · /blade name <이름> · /blade title [칭호] · /blade demo · /blade reset' }
-  }).catch(() => ({ text: '마검사 명령을 처리하지 못했어요' }))
+  }).catch(() => ({ text: '검사 명령을 처리하지 못했어요' }))
 }

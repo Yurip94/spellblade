@@ -281,7 +281,6 @@ function draw(pack: Pack, s: Scene4Input): RgbGrid {
       if (box) { const bolt = fx('bolt'); blit(g, bolt, box.left - bolt[0].length + 3, box.mid - 2) }
       break
     case 'castFail':
-      blit(g, fx('smoke'), tipX - 2, tipY - 6)
       blit(g, fx('sweat'), HERO_LEFT + 1, heroY + Math.round(m.heroBox.height * 0.3))
       break
     case 'levelup':

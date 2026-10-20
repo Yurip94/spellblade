@@ -17,13 +17,13 @@ export function cacheReuse(s: { in: number; cw: number; cr: number }): number | 
   return all > 0 ? Math.round((s.cr / all) * 100) : null
 }
 
-// 위력(W) 식을 게임 말로: 시전 = 출력, 주문서 = 입력, 외워 둠 = 캐시 쓰기
-// "위력 = 시전 2,140 + 0.1 × (주문서 320 + 외워 둠 12,400)"
+// 위력(W) 식을 게임 말로: 휘두름 = 출력, 살핌 = 입력, 익힘 = 캐시 쓰기
+// "위력 = 휘두름 2,140 + 0.1 × (살핌 320 + 익힘 12,400)"
 export function formulaLine(u: { in: number; out: number; cw: number }): string {
-  return `위력 = 시전 ${comma(u.out)} + 0.1 × (주문서 ${comma(u.in)} + 외워 둠 ${comma(u.cw)})`
+  return `위력 = 휘두름 ${comma(u.out)} + 0.1 × (살핌 ${comma(u.in)} + 익힘 ${comma(u.cw)})`
 }
 
-// 마법 적중률 = 적중 ÷ 쏜 수(%), 쏜 적이 없으면 null
+// 강타 명중률 = 명중 ÷ 강타 수(%), 강타가 없으면 null
 export function hitRate(s: { casts: number; hits: number }): number | null {
   return s.casts > 0 ? Math.round((s.hits / s.casts) * 100) : null
 }

@@ -5,7 +5,7 @@ import { xpOf } from './progress.ts'
 // 저장 칸: 세션마다 자기 칸(d:<날짜>:<세션>)에만 쓰고, 읽을 때 합친다
 
 // 1차 칸: w · bonus · swings · updatedAt. 2차에서 더한 칸은 없을 수 있다(없으면 0)
-// casts · hits: 메인 대화 단계마다 쏜 마법 수 · 적중 수(3.0.2)
+// casts · hits: 메인 대화 단계마다 강타 수 · 명중 수(3.0.2 — 그때는 「마법」)
 // api: 그날 쓴 토큰을 단계마다 그 모델의 API 요금으로 친 값(달러 = 골드, 3.0.4) — 없는 칸(앞 버전)은 토큰을 기본 모델 값으로 친다
 const ADDED = ['in', 'out', 'cw', 'cr', 'turns', 'fast', 'clean', 'combo', 'commits', 'prs', 'agents', 'skills', 'night', 'casts', 'hits', 'api'] as const
 type Added = (typeof ADDED)[number]

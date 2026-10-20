@@ -17,7 +17,7 @@ import { comma, formulaLine, hitRate, shortNum } from './tokens.ts'
 export type { LogEntry }
 export { comma }
 
-// 전투 기록 한 묶음: 토큰(시전 · 주문서 · 외워 둠 · 다시 꺼내 씀), 쏜 마법 · 적중, 위력(W), XP
+// 전투 기록 한 묶음: 토큰(휘두름 · 살핌 · 익힘 · 다시 꺼내 씀), 강타 · 명중, 위력(W), XP
 type Battle = { in: number; out: number; cw: number; cr: number; casts: number; hits: number; w: number; xp: number }
 
 // 화면이 그리는 데 필요한 것 전부
@@ -31,7 +31,7 @@ export type CardView = {
   line: string
   log: readonly LogEntry[]
   isDemo: boolean
-  limits: { hp: Gauge | null; mp: Gauge | null } // 체력 = 주간, 마나 = 5시간
+  limits: { hp: Gauge | null; mp: Gauge | null } // 체력 = 주간, 기력 = 5시간
   resets: { hp: string; mp: string }
   quests: readonly { quest: Quest; value: number; done: boolean }[]
   streak: number
@@ -72,7 +72,7 @@ export function bandModeOf(v: unknown): BandMode {
 }
 
 
-// 스피너 단어 뒤에 붙는 한 줄: " · ⚔️ Lv.15 마검사 +34xp"
+// 스피너 단어 뒤에 붙는 한 줄: " · ⚔️ Lv.27 검객 +34xp"
 export function spinnerSuffix(p: Progress, turnXp: number): string {
   return ` · ${p.stage.emoji} Lv.${p.level} ${p.stage.name} +${comma(turnXp)}xp`
 }
@@ -102,10 +102,10 @@ export function gold(usd: number): string {
 // 오늘 경험치 = 오늘 모든 창(세션)에서 쓴 토큰 전부(시전 · 주문서 · 외워 둠 · 꺼내 쓴 것)
 const todayTokens = (v: CardView) => v.today.in + v.today.out + v.today.cw + v.today.cr
 
-// 밴드 한 줄: "⚔️ 렌 Lv.15 ▓░░░░░░░ 14% · ❤️62 🔷41 · 🟢 슬라임 ▓▓░ · 오늘 +234M · 🪙 88.44"
+// 밴드 한 줄: "⚔️ 렌 Lv.15 ▓░░░░░░░ 14% · ❤️62 ⚡41 · 🟢 슬라임 ▓▓░ · 오늘 +234M · 🪙 88.44"
 export function bandLineText(v: CardView): string {
   const p = v.progress
-  const gauges = [v.limits.hp ? `❤️${v.limits.hp.left}` : '', v.limits.mp ? `🔷${v.limits.mp.left}` : ''].filter(Boolean).join(' ')
+  const gauges = [v.limits.hp ? `❤️${v.limits.hp.left}` : '', v.limits.mp ? `⚡${v.limits.mp.left}` : ''].filter(Boolean).join(' ')
   const m = v.monster
   const monster = m ? `${m.emoji} ${m.name} ${xpBar(m.hp / m.maxHp, 3)}` : ''
   const today = `오늘 +${shortNum(todayTokens(v))} · 🪙 ${gold(v.today.api)}`
@@ -150,7 +150,7 @@ export function sceneArt(el: Els, surface: string, grid: RgbGrid, name: string, 
   const px = SCENE_WIDTH[size] / Math.max(1, grid[0]?.length ?? 0)
   const width = (grid[0]?.length ?? 0) * px
   const height = grid.length * px
-  return el.Svg({ source: sceneSvg(grid, px, name), alt: `${name} — 마검사 장면`, width, height })
+  return el.Svg({ source: sceneSvg(grid, px, name), alt: `${name} — 검사 장면`, width, height })
 }
 
 const text = (el: Els, children: string, extra: Record<string, unknown> = {}) => el.Text({ wrap: 'truncate-end', children: [children], ...extra })
@@ -162,7 +162,7 @@ function xpLine(p: Progress, width: number): string {
 function gaugesLine(v: CardView): string | null {
   const parts = [
     v.limits.hp ? gaugeText('❤️', v.limits.hp, v.resets.hp, 8) : '',
-    v.limits.mp ? gaugeText('🔷', v.limits.mp, v.resets.mp, 8) : '',
+    v.limits.mp ? gaugeText('⚡', v.limits.mp, v.resets.mp, 8) : '',
   ].filter(Boolean)
   return parts.length ? parts.join('   ') : null
 }
@@ -284,8 +284,8 @@ function questTab(el: Els, v: CardView): unknown[] {
   ]
 }
 
-// 쏜 마법: 「🎯 4발 중 4발 적중」
-const shots = (s: { casts: number; hits: number }) => (s.casts > 0 ? `🎯 ${s.casts}발 중 ${s.hits}발 적중` : '🎯 아직 쏜 마법이 없어요')
+// 강타: 「🎯 4번 중 4번 명중」
+const shots = (s: { casts: number; hits: number }) => (s.casts > 0 ? `🎯 ${s.casts}번 중 ${s.hits}번 명중` : '🎯 아직 강타가 없어요')
 
 function recordTab(el: Els, v: CardView, coin: unknown): unknown[] {
   const t = v.turn
@@ -313,7 +313,7 @@ function recordTab(el: Els, v: CardView, coin: unknown): unknown[] {
     section(el, '전투 기록', [
       ...turnRows,
       sessionRow,
-      text(el, `  오늘    💥 위력 ${shortNum(d.w)} → +${comma(v.todayXp)} XP · 🎯 마법 적중률 ${rate !== null ? `${rate}% (${d.casts}발 중 ${d.hits}발)` : '—'}`),
+      text(el, `  오늘    💥 위력 ${shortNum(d.w)} → +${comma(v.todayXp)} XP · 🎯 강타 명중률 ${rate !== null ? `${rate}% (${d.casts}번 중 ${d.hits}번)` : '—'}`),
       goldRow(el, '           ', v, coin),
       ...(backpack ? [text(el, `  ${backpack}`)] : []),
     ]),

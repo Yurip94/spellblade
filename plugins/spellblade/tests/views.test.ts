@@ -34,12 +34,12 @@ test('XP 막대', async () => {
 })
 
 test('밴드 한 줄 v2', async () => {
-  expect(bandLineText(view({ xp: 12000, tokens: 1_240_000, gold: 3.5, hp: 62, mp: 41 }))).toBe('🪵 렌 Lv.8 ▓▓░░░░░░ 30% · ❤️62 🔷41 · 오늘 +1.2M · 🪙 3.50')
+  expect(bandLineText(view({ xp: 12000, tokens: 1_240_000, gold: 3.5, hp: 62, mp: 41 }))).toBe('🪵 렌 Lv.8 ▓▓░░░░░░ 30% · ❤️62 ⚡41 · 오늘 +1.2M · 🪙 3.50')
 })
 
-test('한도가 없으면 한 줄에 체력 · 마나가 없다', async () => {
+test('한도가 없으면 한 줄에 체력 · 기력가 없다', async () => {
   expect(bandLineText(view({ xp: 12000, tokens: 1_240_000 }))).toBe('🪵 렌 Lv.8 ▓▓░░░░░░ 30% · 오늘 +1.2M · 🪙 0.00')
-  expect(bandLineText(view({ xp: 12000, mp: 41 }))).toBe('🪵 렌 Lv.8 ▓▓░░░░░░ 30% · 🔷41 · 오늘 +0 · 🪙 0.00')
+  expect(bandLineText(view({ xp: 12000, mp: 41 }))).toBe('🪵 렌 Lv.8 ▓▓░░░░░░ 30% · ⚡41 · 오늘 +0 · 🪙 0.00')
 })
 
 test('만렙 표기', async () => {

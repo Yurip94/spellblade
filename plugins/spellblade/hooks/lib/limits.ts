@@ -1,4 +1,4 @@
-// 플랜 한도 → ❤️ 체력(주간 7일) · 🔷 마나(5시간). 남은 % 와 리셋 시각
+// 플랜 한도 → ❤️ 체력(주간 7일) · ⚡ 기력(5시간). 남은 % 와 리셋 시각
 
 export type Gauge = { left: number; resetsAt: number | null }
 type RateLimit = { kind: string; percentUsed: number; resetsAt?: string }

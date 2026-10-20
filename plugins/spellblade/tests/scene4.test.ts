@@ -121,3 +121,9 @@ test('베기는 그 베기의 첫 장(칼을 가장 크게 그리는 장)', asyn
   const R = parsePack(JSON.stringify(raw))!
   for (const now of [0, 400, 800]) expect(cols(scene4Grid(R, S({ pose: 'slash', now })), SWORD).length).toBeGreaterThan(0)
 })
+
+test('헛손질에는 연기가 없다(땀만)', async () => {
+  const smoke = [0x4a4a56, 0xa8a8b4, 0xd8d8e0]
+  const g = scene4Grid(P, S({ pose: 'castFail' }))
+  expect(g.flat().filter(v => v !== null && smoke.includes(v)).length).toBe(0)
+})

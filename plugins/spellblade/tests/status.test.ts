@@ -3,10 +3,16 @@ import { currentFlash, demoFrame, poseAt, thenFlash, withFlash, type Activity } 
 
 const A = (o: Partial<Activity> = {}): Activity => ({ working: false, lastActiveAt: 0, flash: null, queued: null, ...o })
 
-test('일하는 중에는 영창 두 프레임', async () => {
-  expect(poseAt(A({ working: true }), 0)).toEqual({ pose: 'cast1', line: '마법을 두르는 중…', mode: 'battle' })
-  expect(poseAt(A({ working: true }), 400).pose).toBe('cast2')
-  expect(poseAt(A({ working: true }), 800).pose).toBe('cast1')
+test('일하는 중에는 칼을 겨누고 집중(마법 영창 없음)', async () => {
+  for (const now of [0, 400, 800]) expect(poseAt(A({ working: true }), now)).toEqual({ pose: 'idle', line: '집중하는 중…', mode: 'battle' })
+})
+
+test('단계 끝: 강타는 베기 자세, 헛손질은 휘청(마법 말 없음)', async () => {
+  expect(poseAt(withFlash(A(), 'castHit', 0), 100)).toEqual({ pose: 'slash', line: '강타!', mode: 'battle' })
+  expect(poseAt(withFlash(A(), 'castFail', 0), 100)).toEqual({ pose: 'castFail', line: '헛손질… 자세를 다시 잡는다', mode: 'battle' })
+  expect(poseAt(A(), 0, { hpLeft: 50, mpLeft: 0, mpReset: '30분' }).line).toBe('기력 소진 — 30분 뒤 회복')
+  expect(poseAt(A(), 0, { hpLeft: 50, mpLeft: 5 }).line).toBe('기력이 바닥나 간다')
+  expect(demoFrame(800)?.line).toBe('헛손질… (데모)')
 })
 
 test('깜빡임', async () => {
@@ -20,13 +26,13 @@ test('30분 쉬면 잠', async () => {
 })
 
 test('일하는 중에는 오래돼도 자지 않는다', async () => {
-  expect(poseAt(A({ working: true }), 9_000_000).pose).toMatch(/cast/)
+  expect(poseAt(A({ working: true }), 9_000_000)).toMatchObject({ pose: 'idle', line: '집중하는 중…' })
 })
 
 test('flash 가 끝나면 원래대로', async () => {
   const a = withFlash(A({ working: true }), 'victory', 1000, '+34 XP')
   expect(poseAt(a, 2999)).toEqual({ pose: 'victory', line: '✓ 승리 +34 XP', mode: 'battle' })
-  expect(poseAt(a, 3000).pose).toBe('cast2')
+  expect(poseAt(a, 3000)).toMatchObject({ pose: 'idle', line: '집중하는 중…' })
 })
 
 test('flash 문구', async () => {
@@ -79,7 +85,7 @@ test('데모는 맵 5개 × 3장면 + 보스 한 장(0.8초씩, 16장이면 끝)
   expect(demoFrame(-1)).toBe(null)
 })
 
-// ---- 2차: 기술 · 콤보 · 체력(주간) · 마나(5시간) ----
+// ---- 2차: 기술 · 콤보 · 체력(주간) · 기력(5시간) ----
 
 test('기술 · 콤보 문구', async () => {
   expect(poseAt(withFlash(A(), 'slash', 0, '폭풍 베기! ×12 콤보'), 100).line).toBe('폭풍 베기! ×12 콤보')
@@ -90,16 +96,16 @@ test('승리 요약', async () => {
   expect(poseAt(withFlash(A(), 'victory', 0, '+3 XP · 출력 2.1k'), 100).line).toBe('✓ 승리 +3 XP · 출력 2.1k')
 })
 
-test('마나 0 이면 쉬는 자세', async () => {
-  expect(poseAt(A(), 100, { hpLeft: 50, mpLeft: 0, mpReset: '2:14' })).toEqual({ pose: 'sit', line: '마나 소진 — 2:14 뒤 회복', mode: 'rest' })
+test('기력 0 이면 쉬는 자세', async () => {
+  expect(poseAt(A(), 100, { hpLeft: 50, mpLeft: 0, mpReset: '2:14' })).toEqual({ pose: 'sit', line: '기력 소진 — 2:14 뒤 회복', mode: 'rest' })
 })
 
 test('체력 0 이면 기진맥진', async () => {
   expect(poseAt(A(), 100, { hpLeft: 0, mpLeft: 50, hpReset: '금 09:00' })).toEqual({ pose: 'sit', line: '기진맥진 — 금 09:00 회복', mode: 'rest' })
 })
 
-test('마나가 낮으면 바닥나 간다', async () => {
-  expect(poseAt(A({ working: true }), 0, { hpLeft: 80, mpLeft: 10 })).toEqual({ pose: 'cast1', line: '마나가 바닥나 간다', mode: 'battle' })
+test('기력가 낮으면 바닥나 간다', async () => {
+  expect(poseAt(A({ working: true }), 0, { hpLeft: 80, mpLeft: 10 })).toEqual({ pose: 'idle', line: '기력이 바닥나 간다', mode: 'battle' })
 })
 
 test('체력이 낮으면 숨이 차다', async () => {
@@ -121,9 +127,9 @@ test('마법 결과는 가장 낮은 순위', async () => {
   expect(poseAt(withFlash(withFlash(A(), 'slash', 0, '베기!'), 'castFail', 100), 200).pose).toBe('slash')
 })
 
-test('마법 결과 문구 · 길이 0.7초', async () => {
-  expect(poseAt(withFlash(A(), 'castHit', 0), 100)).toEqual({ pose: 'castHit', line: '✦ 마법 적중!', mode: 'battle' })
-  expect(poseAt(withFlash(A(), 'castFail', 0), 699)).toEqual({ pose: 'castFail', line: '주문이 꼬였다… 처음부터 다시', mode: 'battle' })
+test('강타 · 헛손질 문구 · 길이 0.7초', async () => {
+  expect(poseAt(withFlash(A(), 'castHit', 0), 100)).toEqual({ pose: 'slash', line: '강타!', mode: 'battle' })
+  expect(poseAt(withFlash(A(), 'castFail', 0), 699)).toEqual({ pose: 'castFail', line: '헛손질… 자세를 다시 잡는다', mode: 'battle' })
   expect(poseAt(withFlash(A(), 'castFail', 0), 700).pose).not.toBe('castFail')
 })
 
@@ -158,6 +164,6 @@ test('턴이 끝나고 2분 동안은 전투, 그 뒤 모닥불', async () => {
   expect(poseAt(A(), 1_800_000)).toEqual({ pose: 'sleep', line: 'Zzz', mode: 'rest' })
 })
 
-test('마나 0 이면 일하는 중에도 모닥불', async () => {
-  expect(poseAt(A({ working: true }), 0, { hpLeft: 50, mpLeft: 0, mpReset: '2:14' })).toEqual({ pose: 'sit', line: '마나 소진 — 2:14 뒤 회복', mode: 'rest' })
+test('기력 0 이면 일하는 중에도 모닥불', async () => {
+  expect(poseAt(A({ working: true }), 0, { hpLeft: 50, mpLeft: 0, mpReset: '2:14' })).toEqual({ pose: 'sit', line: '기력 소진 — 2:14 뒤 회복', mode: 'rest' })
 })

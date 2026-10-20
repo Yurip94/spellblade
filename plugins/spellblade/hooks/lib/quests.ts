@@ -16,7 +16,7 @@ const KINDS: Record<QuestKind, { targets: [number, number, number]; title: (n: n
   skills: { targets: [3, 5, 7], title: n => `기술 ${n}가지 쓰기` },
   xp: { targets: [300, 800, 1500], title: n => `오늘 XP ${comma(n)}` },
   fast: { targets: [5, 10, 20], title: n => `빠른 턴 ${n}번` },
-  agents: { targets: [1, 3, 5], title: n => `분신술 ${n}번` },
+  agents: { targets: [1, 3, 5], title: n => `동료 부르기 ${n}번` },
 }
 const TIERS: Tier[] = ['easy', 'normal', 'hard']
 
