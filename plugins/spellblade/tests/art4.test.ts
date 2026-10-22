@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { BACKDROPS4, FX4, GLYPHS4 } from '../hooks/lib/art4.ts'
+import { BACKDROPS } from '../hooks/lib/art3.ts'
 import { LOOKS, lookPalette } from '../hooks/lib/looks.ts'
 
 test('맵 5개 × 낮 · 밤은 80 × 32, 투명 칸 없음', async () => {
@@ -36,4 +37,13 @@ test('장비 색 20단계: 0단계는 그대로, 단계마다 옷 색이 다르�
   expect(new Set(LOOKS.slice(1).map(l => JSON.stringify(l.remap))).size).toBe(19)
   expect([LOOKS[9].glow, LOOKS[10].glow !== null, LOOKS[19].glow !== null]).toEqual([null, true, true])
   expect(lookPalette({ a: 0x2d6ac5, b: 0x111111 }, 1)).toEqual({ a: LOOKS[1].remap[0x2d6ac5], b: 0x111111 })
+})
+
+test('밤하늘에 별을 찍지 않는다(점처럼 깨져 보인다 — 박정욱 2026-10-22), 초승달은 둔다', async () => {
+  for (const [map, b] of Object.entries(BACKDROPS4)) {
+    const colors = Object.values(b.night.palette)
+    expect([map, colors.includes(0xf4f0d8) || colors.includes(0xbcd8ff)]).toEqual([map, false])
+  }
+  expect(Object.values(BACKDROPS4.forest.night.palette)).toContain(0xfff4c0)
+  expect(Object.values(BACKDROPS.night.palette)).not.toContain(0xf0f4ff) // 기본 그림(3.0) 밤도
 })

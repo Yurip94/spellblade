@@ -234,8 +234,7 @@ def background_rgb(night=False):
     s = [[sky(y)] * SW for y in range(SH)]
     fill = lambda cx, cy, r, col: [s[y].__setitem__(x, col if col is not None else sky(y)) for y in range(SH) for x in range(SW) if math.hypot(x - cx, y - cy) <= r]
     if night:
-        for (x, y) in ((8, 4), (22, 9), (37, 3), (51, 7), (66, 2), (83, 6), (97, 3), (112, 9), (126, 4), (141, 8), (154, 3), (30, 15), (120, 14)):
-            s[y][x] = 0xf0f4ff
+        # 별은 찍지 않는다(작은 흰 점이 깨진 도트처럼 보였다 — 4.1.3). 초승달만
         fill(140, 10, 5, 0xfff2c0); fill(142, 9, 4, None)      # 초승달
     else:
         for (cx, cy) in ((30, 9), (98, 6), (140, 12)):

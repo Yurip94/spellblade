@@ -167,11 +167,8 @@ BRIGHT = {0xffc040, 0xffa020, 0xff8030, 0xff6a20, 0xc04a18, 0xb080f0, 0x8a5ad0} 
 
 def night(g, sky, seed):
     n = [[(mix(v, 0x0a0e22, 0.25) if v in BRIGHT else mix(v, 0x0a0e22, 0.6)) for v in r] for r in g]
-    rnd = random.Random(seed)
+    # 별은 찍지 않는다 — 작은 흰 점이 화면에서 깨진 도트처럼 보였다(박정욱 2026-10-22). 초승달만
     cells = sorted(sky)
-    for _ in range(min(26, len(cells))):
-        x, y = cells[rnd.randrange(len(cells))]
-        if y < 18: n[y][x] = 0xf4f0d8 if rnd.random() < 0.7 else 0xbcd8ff
     if cells:
         for dx, dy in ((0, 0), (1, 0), (2, 1), (2, 2), (1, 3), (0, 3)):   # 초승달
             if (66 + dx, 3 + dy) in sky: n[3 + dy][66 + dx] = 0xfff4c0
