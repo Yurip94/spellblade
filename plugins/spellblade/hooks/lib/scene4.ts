@@ -15,6 +15,8 @@ export const SCENE4_H = 32
 export const GROUND4 = 26
 const HERO_LEFT = 6
 const MONSTER_GAP = 6
+// 모닥불 빛 띠: 거리(점) 안이면 그 세기로 섞는다
+const GLOW_BANDS = [{ r: 5, k: 0.36 }, { r: 10, k: 0.26 }, { r: 15, k: 0.15 }, { r: 20, k: 0.07 }]
 
 export type Scene4Input = { mode: 'battle' | 'rest'; level: number; pose: HeroPose; battle: Battle | null; now: number; dimMagic: boolean }
 
@@ -251,9 +253,12 @@ function draw(pack: Pack, s: Scene4Input): RgbGrid {
     const fx0 = heroRight + 4
     const cx = fx0 + 3
     const cy = GROUND4 - 4
+    // 모닥불 빛은 띠 4개로만(가까울수록 진하게). 칸마다 다른 색으로 칠하면 화면이 소수 배율로 늘 때
+    // 칸 사이 틈이 작은 점으로 보인다(4.1.0 밤 장면) — 같은 띠 안의 이웃 칸은 같은 색이 되게 한다
     for (let y = 0; y < SCENE4_H; y++) for (let x = 0; x < SCENE4_W; x++) {
       const d = Math.hypot(x - cx, (y - cy) * 1.25)
-      if (d < 20) g[y][x] = mixRgb(g[y][x]!, 0xff9a3a, (1 - d / 20) * 0.45)
+      const band = GLOW_BANDS.find(b => d < b.r)
+      if (band) g[y][x] = mixRgb(g[y][x]!, 0xff9a3a, band.k)
     }
     blit(g, fire, fx0, GROUND4 + 1 - fire.length)
   }

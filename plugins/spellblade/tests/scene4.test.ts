@@ -127,3 +127,12 @@ test('헛손질에는 연기가 없다(땀만)', async () => {
   const g = scene4Grid(P, S({ pose: 'castFail' }))
   expect(g.flat().filter(v => v !== null && smoke.includes(v)).length).toBe(0)
 })
+
+test('모닥불 빛은 몇 단계 띠로만 칠한다(칸마다 다른 색이면 소수 배율에서 칸 사이 틈이 점으로 보인다)', async () => {
+  const runs = (g: (number | null)[][]) => g.reduce((n, r) => n + r.filter((v, x) => x === 0 || v !== r[x - 1]).length, 0)
+  for (const level of [7, 27, 47, 67, 87]) {
+    const rest = scene4Grid(P, S({ mode: 'rest', pose: 'sit', level, battle: null }))
+    const back = toRgb(Object.values(BACKDROPS4)[Math.floor(level / 20)].night)
+    expect([level, runs(rest) - runs(back) < 300]).toEqual([level, true])
+  }
+})
