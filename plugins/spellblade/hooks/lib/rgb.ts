@@ -54,6 +54,31 @@ function nameOf(s: string): string {
   return 'p' + h.toString(36)
 }
 
+// 밑칠: 투명 칸이 없는 줄은 그 줄에서 가장 많은 색으로 먼저 칠한다(같은 색 줄은 한 rect). 화면이 반 점 비킨 그림을
+// 무시하거나 그래도 틈이 생기면 앱 바탕(흰색)이 비쳐 어두운 밤 장면에서 흰 점으로 보인다 — 그 틈에 하늘 · 땅 색이 보이게 한다.
+// 투명 칸이 있는 줄(작은 주인공 그림 등)은 칠하지 않는다
+function backing(g: RgbGrid, w: number): string {
+  const out: string[] = []
+  let run: { color: number; y: number; n: number } | null = null
+  const flush = () => {
+    if (run) out.push(`<rect x="0" y="${run.y}" width="${w}" height="${run.n}" fill="${hex(run.color)}"/>`)
+    run = null
+  }
+  g.forEach((r, y) => {
+    if (r.length === 0 || r.some(v => v === null)) return flush()
+    const count = new Map<number, number>()
+    for (const v of r) count.set(v!, (count.get(v!) ?? 0) + 1)
+    const color = [...count].reduce((a, b) => (b[1] > a[1] ? b : a))[0]
+    if (run && run.color === color && run.y + run.n === y) run.n++
+    else {
+      flush()
+      run = { color, y, n: 1 }
+    }
+  })
+  flush()
+  return out.join('')
+}
+
 // 색마다 path 하나, 가로로 이어진 같은 색은 한 조각. extra(이름표 등)는 viewBox 점 좌표로 </svg> 앞에 붙는다.
 // 화면이 그림을 소수 배율로 늘리면 칸 사이 틈으로 바탕(흰색)이 비친다 — 같은 그림을 반 점 비켜 밑에 한 번 더 깔아
 // 틈에는 옆 칸 색이 보이게 한다(path 는 한 번만 쓰고 use 로 두 번 그린다)
@@ -77,7 +102,7 @@ export function rgbToSvg(g: RgbGrid, pixel: number, extra = ''): string {
   })
   const paths = [...runs].map(([c, d]) => `<path fill="${hex(c)}" d="${d.join('')}"/>`).join('')
   const id = nameOf(paths)
-  const layers = `<defs><g id="${id}">${paths}</g></defs><use href="#${id}" transform="translate(.5 .5)"/><use href="#${id}"/>`
+  const layers = `${backing(g, w)}<defs><g id="${id}">${paths}</g></defs><use href="#${id}" transform="translate(.5 .5)"/><use href="#${id}"/>`
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w * pixel}" height="${h * pixel}" shape-rendering="crispEdges">${layers}${extra}</svg>`
 }
 

@@ -26,6 +26,16 @@ test('이음매 가리기: 반 점 비킨 그림을 밑에 깐다', async () => 
   expect(s.match(/<path /g)?.length).toBe(2)
 })
 
+// 화면이 반 점 비킨 그림을 무시하거나 틈이 그래도 생기면 앱 바탕(흰색)이 비친다(4.1 밤 장면의 흰 점).
+// 투명 칸이 없는 줄은 그 줄에서 가장 많은 색으로 먼저 칠해 두어 틈에는 어두운 하늘 · 땅 색이 보이게 한다
+test('이음매 가리기: 투명 칸이 없는 줄은 가장 많은 색으로 밑칠(같은 색 줄은 하나로)', async () => {
+  const s = rgbToSvg([[0x112233, 0x112233, 0xffffff], [0x445566, 0x445566, 0x112233], [0x445566, 0x112233, 0x445566], [null, 0x112233, 0x112233]], 4)
+  expect(s).toContain('<rect x="0" y="0" width="3" height="1" fill="#112233"/>')
+  expect(s).toContain('<rect x="0" y="1" width="3" height="2" fill="#445566"/>')
+  expect(s.match(/<rect /g)?.length).toBe(2) // 투명 칸이 있는 줄(맨 아래)은 밑칠하지 않는다 — 작은 주인공 그림 등
+  expect(s.indexOf('<rect ')).toBeLessThan(s.indexOf('<use '))
+})
+
 test('이음매 가리기: 그림이 다르면 이름도 다르다', async () => {
   const id = (s: string) => s.match(/<g id="([^"]+)">/)?.[1]
   expect(id(rgbToSvg([[1]], 1))).not.toBe(id(rgbToSvg([[2]], 1)))
